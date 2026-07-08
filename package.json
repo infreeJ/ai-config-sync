@@ -1,0 +1,10 @@
+{
+  "name": "ai-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync": "node scripts/sync-global-ai.mjs",
+    "sync:dry": "node scripts/sync-global-ai.mjs --dry-run"
+  }
+}
