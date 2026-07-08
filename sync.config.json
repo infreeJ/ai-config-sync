@@ -1,4 +1,5 @@
 {
+  "instructionsMode": "sidecar",
   "codexAgentDefaults": {
     "model": "gpt-5",
     "reasoningEffort": "high"

@@ -20,6 +20,7 @@ const CONFIG_FILE = join(ROOT, 'sync.config.json');
 const DRY_RUN = process.argv.includes('--dry-run');
 
 const DEFAULT_CONFIG = {
+  instructionsMode: 'sidecar',
   codexAgentDefaults: {
     model: 'gpt-5',
     reasoningEffort: 'high',
@@ -40,32 +41,21 @@ const TARGETS = {
   claude: {
     root: join(home, '.claude'),
     claudeMd: join(home, '.claude', 'CLAUDE.md'),
+    claudeSyncMd: join(home, '.claude', 'CLAUDE-sync.md'),
     skills: join(home, '.claude', 'skills'),
     agents: join(home, '.claude', 'agents'),
   },
   codex: {
     root: join(home, '.codex'),
     agentsMd: join(home, '.codex', 'AGENTS.md'),
+    agentsSyncMd: join(home, '.codex', 'AGENTS-sync.md'),
     skills: join(home, '.codex', 'skills'),
     agents: join(home, '.codex', 'agents'),
   },
 };
 
 const HEADER = 'AUTO-GENERATED from ai-config-sync. Edit the source under sources/.';
-const INSTRUCTION_SPECS = [
-  {
-    name: 'AGENTS.md',
-    source: join(SOURCE_ROOT, 'AGENTS.md'),
-    target: TARGETS.codex,
-    destination: TARGETS.codex.agentsMd,
-  },
-  {
-    name: 'CLAUDE.md',
-    source: join(SOURCE_ROOT, 'CLAUDE.md'),
-    target: TARGETS.claude,
-    destination: TARGETS.claude.claudeMd,
-  },
-];
+const INSTRUCTION_MODES = new Set(['off', 'sidecar', 'managed']);
 
 function readConfig() {
   if (!existsSync(CONFIG_FILE)) return DEFAULT_CONFIG;
@@ -85,9 +75,60 @@ function readConfig() {
 }
 
 const config = readConfig();
+if (!INSTRUCTION_MODES.has(config.instructionsMode)) {
+  throw new Error(
+    `Invalid instructionsMode "${config.instructionsMode}". Expected one of: off, sidecar, managed.`,
+  );
+}
+const instructionMode = config.instructionsMode;
+
+function instructionSpecsForMode(mode) {
+  if (mode === 'off') return [];
+
+  const destinations =
+    mode === 'managed'
+      ? {
+          codex: TARGETS.codex.agentsMd,
+          claude: TARGETS.claude.claudeMd,
+        }
+      : {
+          codex: TARGETS.codex.agentsSyncMd,
+          claude: TARGETS.claude.claudeSyncMd,
+        };
+
+  return [
+    {
+      name: 'AGENTS.md',
+      source: join(SOURCE_ROOT, 'AGENTS.md'),
+      target: TARGETS.codex,
+      destination: destinations.codex,
+    },
+    {
+      name: 'CLAUDE.md',
+      source: join(SOURCE_ROOT, 'CLAUDE.md'),
+      target: TARGETS.claude,
+      destination: destinations.claude,
+    },
+  ];
+}
+
+const instructionSpecs = instructionSpecsForMode(instructionMode);
 
 function log(message) {
   console.log(`[sync-global-ai] ${message}`);
+}
+
+function logInstructionMode() {
+  if (instructionMode === 'off') {
+    log('instruction mode: off; instruction targets: none');
+    return;
+  }
+
+  log(
+    `instruction mode: ${instructionMode}; instruction targets: ${instructionSpecs
+      .map((spec) => spec.destination)
+      .join(', ')}`,
+  );
 }
 
 function listEntries(dir) {
@@ -190,7 +231,7 @@ function writeFile(destination, content, targetRoot) {
 
 function syncInstructions() {
   let count = 0;
-  for (const spec of INSTRUCTION_SPECS) {
+  for (const spec of instructionSpecs) {
     if (!existsSync(spec.source)) {
       log(`skip instruction ${spec.name}: source file does not exist`);
       continue;
@@ -315,6 +356,7 @@ function syncAgents() {
   return count;
 }
 
+logInstructionMode();
 const instructions = syncInstructions();
 const skills = syncSkills();
 const agents = syncAgents();
