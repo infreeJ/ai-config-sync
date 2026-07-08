@@ -13,9 +13,9 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(join(dirname(fileURLToPath(import.meta.url)), '..'));
-const SOURCE_INSTRUCTIONS = join(ROOT, 'instructions');
-const SOURCE_SKILLS = join(ROOT, 'skills');
-const SOURCE_AGENTS = join(ROOT, 'agents');
+const SOURCE_ROOT = join(ROOT, 'sources');
+const SOURCE_SKILLS = join(SOURCE_ROOT, 'skills');
+const SOURCE_AGENTS = join(SOURCE_ROOT, 'agents');
 const CONFIG_FILE = join(ROOT, 'sync.config.json');
 const DRY_RUN = process.argv.includes('--dry-run');
 
@@ -51,17 +51,17 @@ const TARGETS = {
   },
 };
 
-const HEADER = 'AUTO-GENERATED from ai-workbench. Edit the source under instructions/, skills/, or agents/.';
+const HEADER = 'AUTO-GENERATED from ai-config-sync. Edit the source under sources/.';
 const INSTRUCTION_SPECS = [
   {
     name: 'AGENTS.md',
-    source: join(SOURCE_INSTRUCTIONS, 'AGENTS.md'),
+    source: join(SOURCE_ROOT, 'AGENTS.md'),
     target: TARGETS.codex,
     destination: TARGETS.codex.agentsMd,
   },
   {
     name: 'CLAUDE.md',
-    source: join(SOURCE_INSTRUCTIONS, 'CLAUDE.md'),
+    source: join(SOURCE_ROOT, 'CLAUDE.md'),
     target: TARGETS.claude,
     destination: TARGETS.claude.claudeMd,
   },
