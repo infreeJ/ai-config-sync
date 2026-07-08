@@ -1,20 +1,20 @@
 {
   "instructionsMode": "sidecar",
   "codexAgentDefaults": {
-    "model": "gpt-5",
+    "model": "gpt-5.5",
     "reasoningEffort": "high"
   },
   "codexAgentModelMap": {
     "opus": {
-      "model": "gpt-5",
+      "model": "gpt-5.5",
       "reasoningEffort": "xhigh"
     },
     "sonnet": {
-      "model": "gpt-5",
+      "model": "gpt-5.5",
       "reasoningEffort": "high"
     },
     "haiku": {
-      "model": "gpt-5",
+      "model": "gpt-5.5",
       "reasoningEffort": "medium"
     }
   }
