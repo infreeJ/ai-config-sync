@@ -148,9 +148,21 @@ function ensureInside(path, parent) {
 }
 
 function ensureTargetRoot(target) {
-  if (!existsSync(target.root)) {
-    throw new Error(`Global target does not exist: ${target.root}`);
+  ensureInside(target.root, home);
+  if (existsSync(target.root)) {
+    const rootStat = statSync(target.root);
+    if (!rootStat.isDirectory()) {
+      throw new Error(`Global target is not a directory: ${target.root}`);
+    }
+    return;
   }
+
+  if (DRY_RUN) {
+    log(`would create target root ${target.root}`);
+    return;
+  }
+
+  mkdirSync(target.root, { recursive: true });
 }
 
 function removeIfExists(path, targetRoot) {

@@ -48,6 +48,8 @@ sync.config.json
   - Claude: `~/.claude`
   - Codex: `~/.codex`
 
+전역 디렉터리(`~/.claude`, `~/.codex`)가 아직 없어도 괜찮습니다. `npm run sync`는 필요한 루트 디렉터리를 자동으로 만들고, `npm run sync:dry`는 실제 생성 없이 만들 예정인 경로만 출력합니다.
+
 Windows에서는 `~`가 `USERPROFILE` 기준으로 해석되고, macOS/Linux에서는 `HOME` 기준으로 해석됩니다.
 
 ## 기본 사용 흐름
@@ -158,6 +160,7 @@ git config core.hooksPath scripts/hooks
 ## 안전하게 쓰기 위한 규칙
 
 - 실제 동기화 전에는 항상 `npm run sync:dry`를 먼저 실행합니다.
+- `npm run sync`는 필요한 경우 `~/.claude`, `~/.codex` 루트 디렉터리를 자동으로 만듭니다.
 - 스크립트는 지정된 Claude/Codex 전역 루트 밖으로 쓰지 않도록 경로를 검사합니다.
 - 기본 `sidecar` 모드는 기존 전역 `AGENTS.md`, `CLAUDE.md`를 덮어쓰지 않습니다.
 - sidecar 파일은 자동 include가 아닙니다. 필요하면 기존 전역 지시문에서 직접 언급해야 합니다.
