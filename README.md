@@ -1,24 +1,29 @@
 # ai-config-sync
 
-`ai-config-sync` is a small template repository for keeping shared Claude and Codex configuration in one place, then copying it into your global Claude/Codex directories when you choose to sync.
+`ai-config-sync`는 Claude와 Codex에서 함께 쓰는 전역 설정을 한 저장소에서 관리하기 위한 저장소입니다. 실제 전역 디렉터리(`~/.claude`, `~/.codex`)를 직접 고치지 않고, 이 저장소의 `sources/`를 원본으로 두고 필요할 때만 동기화합니다.
 
-The repository is the source of truth. Edit files under `sources/`, review the planned changes with a dry run, and only then sync them to your global AI configuration directories.
+기본 원칙은 단순합니다.
 
-## What It Syncs
+- 설정의 원본은 이 저장소입니다.
+- 수정은 `sources/` 아래에서만 합니다.
+- 전역 설정에 반영하기 전에는 먼저 dry run으로 변경 내용을 확인합니다.
+- 기존 전역 지시문 파일을 덮어쓰지 않는 `sidecar` 방식을 기본값으로 사용합니다.
 
-Current behavior:
+## 무엇을 동기화하나
 
-- Instruction files are controlled by `instructionsMode` in `sync.config.json`.
-- The default `sidecar` mode writes `sources/AGENTS.md` to `~/.codex/AGENTS-sync.md`.
-- The default `sidecar` mode writes `sources/CLAUDE.md` to `~/.claude/CLAUDE-sync.md`.
-- Each directory in `sources/skills/<name>/` is copied to both `~/.claude/skills/<name>/` and `~/.codex/skills/<name>/`.
-- Each Markdown file in `sources/agents/<name>.md` is copied to Claude as `~/.claude/agents/<name>.md`.
-- The same agent file is converted to Codex TOML and written to `~/.codex/agents/<name>.toml`.
-- Global skills and agents with other names are left alone.
+현재 동기화 대상은 지시문, 스킬, 에이전트입니다.
 
-By default, `npm run sync` does not overwrite existing global `~/.codex/AGENTS.md` or `~/.claude/CLAUDE.md` files. It only creates or updates the sidecar files `AGENTS-sync.md` and `CLAUDE-sync.md`.
+- 지시문 동기화 방식은 `sync.config.json`의 `instructionsMode`가 결정합니다.
+- 기본값인 `sidecar` 모드에서는 `sources/AGENTS.md`가 `~/.codex/AGENTS-sync.md`로 복사됩니다.
+- 같은 모드에서 `sources/CLAUDE.md`는 `~/.claude/CLAUDE-sync.md`로 복사됩니다.
+- `sources/skills/<name>/` 디렉터리는 Claude와 Codex의 전역 skills 디렉터리로 각각 복사됩니다.
+- `sources/agents/<name>.md` 파일은 Claude에는 Markdown 그대로 복사됩니다.
+- 같은 agent 파일은 Codex용 TOML로 변환되어 `~/.codex/agents/<name>.toml`에 기록됩니다.
+- 이름이 다른 기존 전역 skill과 agent는 건드리지 않습니다.
 
-## Repository Layout
+기본 설정에서 `npm run sync`는 기존 `~/.codex/AGENTS.md` 또는 `~/.claude/CLAUDE.md`를 덮어쓰지 않습니다. 대신 `AGENTS-sync.md`, `CLAUDE-sync.md`라는 보조 파일만 만들거나 갱신합니다.
+
+## 저장소 구조
 
 ```text
 sources/
@@ -34,63 +39,61 @@ scripts/
 sync.config.json
 ```
 
-Use `sources/` for all content controlled by this repository. Do not edit generated files directly under `~/.claude` or `~/.codex` if you want this repository to remain the source of truth.
+이 저장소가 관리하는 내용은 모두 `sources/` 아래에 둡니다. 이 원칙을 지켜야 전역 설정과 저장소 내용이 어긋나지 않습니다.
 
-## Requirements
+## 준비 사항
 
-- Node.js and npm
-- Claude and/or Codex configured to read from the standard global directories:
+- Node.js와 npm
+- Claude 또는 Codex가 표준 전역 디렉터리를 사용하는 환경
   - Claude: `~/.claude`
   - Codex: `~/.codex`
 
-On Windows, `~` resolves from `USERPROFILE`. On macOS/Linux, it resolves from `HOME`.
+Windows에서는 `~`가 `USERPROFILE` 기준으로 해석되고, macOS/Linux에서는 `HOME` 기준으로 해석됩니다.
 
-## Quick Start
+## 기본 사용 흐름
 
-1. Edit the source files under `sources/`.
-2. Keep the default `instructionsMode: "sidecar"` unless you intentionally want another mode.
-3. Preview the planned global changes:
+1. `sources/` 아래의 원본 파일을 수정합니다.
+2. 특별한 이유가 없다면 `instructionsMode: "sidecar"`를 유지합니다.
+3. 전역 디렉터리에 어떤 변경이 생길지 먼저 확인합니다.
 
 ```sh
 npm run sync:dry
 ```
 
-4. If the dry run looks correct, apply the sync:
+4. 출력이 의도와 맞으면 실제 동기화를 실행합니다.
 
 ```sh
 npm run sync
 ```
 
-5. To make sidecar instructions visible to your tools, manually add a short reference sentence to your existing global instruction files.
+5. `sidecar` 지시문을 실제로 참고하게 만들려면 기존 전역 지시문 파일에 짧은 안내 문장을 직접 추가합니다.
 
-For Codex, add something like this to `~/.codex/AGENTS.md`:
+Codex의 경우 `~/.codex/AGENTS.md`에 다음과 같은 문장을 추가할 수 있습니다.
 
 ```md
 Also review and follow the repository-managed instructions in ~/.codex/AGENTS-sync.md when they are relevant.
 ```
 
-For Claude, add something like this to `~/.claude/CLAUDE.md`:
+Claude의 경우 `~/.claude/CLAUDE.md`에 다음과 같은 문장을 추가할 수 있습니다.
 
 ```md
 Also review and follow the repository-managed instructions in ~/.claude/CLAUDE-sync.md when they are relevant.
 ```
 
-This reference sentence is a lightweight reference pattern. It asks the agent to consider the sidecar file, but it is not a guaranteed file include mechanism.
+이 문장은 보조 지시문 파일을 참고하라는 요청입니다. 파일 포함을 보장하는 메커니즘은 아니므로, 전역 지시문 자체를 확실히 이 저장소가 관리하게 만들고 싶다면 기존 파일을 백업한 뒤 `instructionsMode`를 `managed`로 바꾸어야 합니다.
 
-If you need guaranteed replacement of the global instruction files, back up your existing `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`, then switch `instructionsMode` to `managed`.
-
-You can also run the script directly:
+스크립트를 직접 실행할 수도 있습니다.
 
 ```sh
 node scripts/sync-global-ai.mjs --dry-run
 node scripts/sync-global-ai.mjs
 ```
 
-## Agents
+## 에이전트 작성
 
-Claude agents are plain Markdown files under `sources/agents/`.
+Claude 에이전트 원본은 `sources/agents/` 아래의 Markdown 파일입니다.
 
-Use frontmatter for metadata:
+각 파일에는 다음 frontmatter를 둡니다.
 
 ```md
 ---
@@ -102,23 +105,19 @@ model: sonnet
 Agent instructions go here.
 ```
 
-During sync:
+동기화할 때 Claude는 Markdown 파일을 그대로 받고, Codex는 변환된 TOML 파일을 받습니다. `model` 값은 `sync.config.json`의 `codexAgentModelMap`을 통해 Codex 설정으로 매핑됩니다.
 
-- Claude receives the Markdown file as-is.
-- Codex receives a generated TOML file.
-- The `model` value is mapped through `sync.config.json`.
+기본 매핑은 `opus`, `sonnet`, `haiku`를 지원합니다. frontmatter의 `model`이 비어 있거나 매핑되지 않은 값이면 `codexAgentDefaults`가 사용됩니다.
 
-The default model map currently supports `opus`, `sonnet`, and `haiku`.
+## 스킬 작성
 
-## Skills
+스킬은 `sources/skills/<skill-name>/` 아래에 둡니다.
 
-Skills live under `sources/skills/<skill-name>/`.
+동기화 시 skill 디렉터리 전체가 Claude와 Codex의 전역 skill 디렉터리로 복사됩니다. 재사용할 지시문은 `SKILL.md`에 작성하고, 보조 파일이 필요하면 같은 skill 디렉터리 안에 함께 둡니다.
 
-Each skill directory is copied as a whole into both global skill directories. Keep reusable skill instructions in `SKILL.md` and include any supporting files inside the same skill directory.
+## 설정 파일
 
-## Configuration
-
-`sync.config.json` controls instruction sync behavior and how Claude-style agent model names map to Codex model settings.
+`sync.config.json`은 지시문 동기화 방식과 Claude식 agent model 이름을 Codex 설정으로 바꾸는 규칙을 관리합니다.
 
 ```json
 {
@@ -136,35 +135,33 @@ Each skill directory is copied as a whole into both global skill directories. Ke
 }
 ```
 
-### Instruction Modes
+### instructionsMode
 
-`instructionsMode` must be one of `off`, `sidecar`, or `managed`.
+`instructionsMode`는 `off`, `sidecar`, `managed` 중 하나여야 합니다.
 
-| Mode | Behavior | Risk |
+| 모드 | 동작 | 주의할 점 |
 | --- | --- | --- |
-| `off` | Does not write instruction files. Skills and agents are still synced. | Lowest risk for existing global instructions, but repository-managed instruction changes are not synced. |
-| `sidecar` | Writes `~/.codex/AGENTS-sync.md` and `~/.claude/CLAUDE-sync.md`. Existing `AGENTS.md` and `CLAUDE.md` are not overwritten. | Safer default, but sidecar instructions are only useful after you manually reference them from your existing global instruction files. |
-| `managed` | Writes directly to `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`. | Highest risk. This is an explicit opt-in mode that overwrites existing global instruction files. Back up those files first. |
+| `off` | 지시문 파일은 쓰지 않고 skills와 agents만 동기화합니다. | 기존 전역 지시문에는 가장 안전하지만, 이 저장소의 지시문 변경도 반영되지 않습니다. |
+| `sidecar` | `~/.codex/AGENTS-sync.md`, `~/.claude/CLAUDE-sync.md`를 씁니다. 기존 `AGENTS.md`, `CLAUDE.md`는 덮어쓰지 않습니다. | 안전한 기본값입니다. 다만 기존 전역 지시문에서 sidecar 파일을 참고하도록 직접 연결해야 의미가 있습니다. |
+| `managed` | `~/.codex/AGENTS.md`, `~/.claude/CLAUDE.md`에 직접 씁니다. | 기존 전역 지시문을 덮어씁니다. 반드시 명시적으로 선택하고, 기존 파일을 먼저 백업하세요. |
 
-If an agent's frontmatter model is missing or not mapped, the script uses `codexAgentDefaults`.
+## 선택 사항: Git hook
 
-## Optional Git Hook
-
-You can configure this repository to sync before each commit:
+커밋 전에 자동으로 동기화하고 싶다면 Git hook 경로를 설정할 수 있습니다.
 
 ```sh
 git config core.hooksPath scripts/hooks
 ```
 
-This makes `scripts/hooks/pre-commit` run before commits. Only enable it if you want commits in this repository to update your global Claude/Codex configuration automatically.
+이 설정을 켜면 커밋 전에 `scripts/hooks/pre-commit`이 실행됩니다. 커밋할 때마다 전역 Claude/Codex 설정도 함께 갱신되길 원할 때만 사용하세요.
 
-## Safety Notes
+## 안전하게 쓰기 위한 규칙
 
-- Always run `npm run sync:dry` before `npm run sync`.
-- The script keeps writes inside the target global Claude/Codex roots.
-- The default `sidecar` instruction mode does not overwrite existing global `AGENTS.md` or `CLAUDE.md` files.
-- Sidecar reference sentences are not guaranteed includes. Use `managed` mode only when you want this repository to replace the global instruction files directly.
-- Unrelated global skills and agents are preserved.
-- Same-name source skills are replaced in the global skill directories.
-- Same-name source agents may remove stale `.md`, `.toml`, or directory variants before writing the current format.
-- In `managed` mode, global `AGENTS.md` and `CLAUDE.md` are overwritten by the current source files when you run a real sync.
+- 실제 동기화 전에는 항상 `npm run sync:dry`를 먼저 실행합니다.
+- 스크립트는 지정된 Claude/Codex 전역 루트 밖으로 쓰지 않도록 경로를 검사합니다.
+- 기본 `sidecar` 모드는 기존 전역 `AGENTS.md`, `CLAUDE.md`를 덮어쓰지 않습니다.
+- sidecar 파일은 자동 include가 아닙니다. 필요하면 기존 전역 지시문에서 직접 언급해야 합니다.
+- `managed` 모드는 이 저장소가 전역 지시문 파일을 직접 대체하길 원할 때만 사용합니다.
+- 이름이 다른 기존 전역 skills와 agents는 보존됩니다.
+- 같은 이름의 source skill은 전역 skill 디렉터리에서 교체됩니다.
+- 같은 이름의 source agent는 현재 형식으로 쓰기 전에 남아 있는 `.md`, `.toml`, 디렉터리 형태의 오래된 변형을 정리할 수 있습니다.
