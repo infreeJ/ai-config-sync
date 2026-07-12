@@ -48,7 +48,7 @@ sync.config.json
   - Claude: `~/.claude`
   - Codex: `~/.codex`
 
-전역 디렉터리(`~/.claude`, `~/.codex`)가 아직 없어도 괜찮습니다. `npm run sync`는 필요한 루트 디렉터리를 자동으로 만들고, `npm run sync:dry`는 실제 변경 없이 변경 대상을 `create`/`overwrite`로 출력하고 변경 없는 항목은 요약으로 집계합니다.
+전역 디렉터리(`~/.claude`, `~/.codex`)가 아직 없어도 괜찮습니다. `npm run sync`는 먼저 변경 계획을 출력한 뒤 Y/N 승인을 받아 실제 적용하며, 승인 후 필요한 루트 디렉터리를 자동으로 만듭니다. `npm run sync:dry`는 실제 변경 없이 변경 대상을 `create`/`overwrite`로 출력하고 변경 없는 항목은 요약으로 집계합니다.
 
 Windows에서는 `~`가 `USERPROFILE` 기준으로 해석되고, macOS/Linux에서는 `HOME` 기준으로 해석됩니다.
 
@@ -69,6 +69,14 @@ Dry-run은 필요 시 `Target roots`를 포함해 `Instructions`, `Skills`, `Age
 ```sh
 npm run sync
 ```
+
+`npm run sync`는 같은 변경 계획을 먼저 보여준 뒤 `Apply these changes? [y/N]` 확인을 받습니다. 자동화나 Git hook처럼 입력을 받을 수 없는 경로에서는 다음처럼 `--yes`를 사용하면 계획 출력 후 프롬프트 없이 적용합니다.
+
+```sh
+node scripts/sync-global-ai.mjs --yes
+```
+
+`--dry-run`은 항상 실제 쓰기보다 우선합니다. `--dry-run --yes`를 함께 전달해도 계획만 출력하고 종료합니다.
 
 5. `sidecar` 지시문을 실제로 참고하게 만들려면 기존 전역 지시문 파일에 짧은 안내 문장을 직접 추가합니다.
 
@@ -91,6 +99,7 @@ Also review and follow the repository-managed instructions in ~/.claude/CLAUDE-s
 ```sh
 node scripts/sync-global-ai.mjs --dry-run
 node scripts/sync-global-ai.mjs
+node scripts/sync-global-ai.mjs --yes
 ```
 
 ## 에이전트 작성
@@ -126,6 +135,7 @@ Agent instructions go here.
 ```json
 {
   "instructionsMode": "sidecar",
+  "preCommitSync": "off",
   "codexAgentDefaults": {
     "model": "gpt-5.5",
     "reasoningEffort": "high"
@@ -149,20 +159,31 @@ Agent instructions go here.
 | `sidecar` | `~/.codex/AGENTS-sync.md`, `~/.claude/CLAUDE-sync.md`를 씁니다. 기존 `AGENTS.md`, `CLAUDE.md`는 덮어쓰지 않습니다. | 안전한 기본값입니다. 다만 기존 전역 지시문에서 sidecar 파일을 참고하도록 직접 연결해야 의미가 있습니다. |
 | `managed` | `~/.codex/AGENTS.md`, `~/.claude/CLAUDE.md`에 직접 씁니다. | 기존 전역 지시문을 덮어씁니다. 반드시 명시적으로 선택하고, 기존 파일을 먼저 백업하세요. |
 
+### preCommitSync
+
+`preCommitSync`는 `on`, `off` 중 하나여야 합니다.
+
+- 기본값은 `off`입니다.
+- `on`: `scripts/hooks/pre-commit`이 실행될 때 설정을 동기화합니다. 커밋 중 프롬프트가 뜨지 않도록 `--pre-commit` 모드로 바로 적용합니다.
+- `off`: `scripts/hooks/pre-commit`이 실행되어도 동기화하지 않고 안내 메시지만 출력한 뒤 정상 종료합니다.
+
 ## 선택 사항: Git hook
 
-커밋 전에 자동으로 동기화하고 싶다면 Git hook 경로를 설정할 수 있습니다.
+커밋 전에 자동으로 동기화하고 싶다면 `preCommitSync: "on"`으로 바꾸고 Git hook 경로를 별도로 설정합니다.
 
 ```sh
 git config core.hooksPath scripts/hooks
 ```
 
-이 설정을 켜면 커밋 전에 `scripts/hooks/pre-commit`이 실행됩니다. 커밋할 때마다 전역 Claude/Codex 설정도 함께 갱신되길 원할 때만 사용하세요.
+이 설정을 켜면 커밋 전에 `scripts/hooks/pre-commit`이 실행됩니다. 훅은 `node scripts/sync-global-ai.mjs --pre-commit`을 실행하며, `sync.config.json`의 `preCommitSync` 값을 따릅니다.
+
+`preCommitSync: "on"`인데 `core.hooksPath`가 `scripts/hooks`로 설정되어 있지 않으면 dry-run과 sync 리포트에 설정 안내가 출력됩니다.
 
 ## 안전하게 쓰기 위한 규칙
 
 - 실제 동기화 전에는 항상 `npm run sync:dry`를 먼저 실행합니다.
-- `npm run sync`는 필요한 경우 `~/.claude`, `~/.codex` 루트 디렉터리를 자동으로 만듭니다.
+- `npm run sync`는 변경 계획을 출력한 뒤 Y/N 승인을 받고, 필요한 경우 `~/.claude`, `~/.codex` 루트 디렉터리를 자동으로 만듭니다.
+- 자동화에서는 `node scripts/sync-global-ai.mjs --yes`를 사용하면 프롬프트 없이 적용합니다.
 - 스크립트는 지정된 Claude/Codex 전역 루트 밖으로 쓰지 않도록 경로를 검사합니다.
 - 기본 `sidecar` 모드는 기존 전역 `AGENTS.md`, `CLAUDE.md`를 덮어쓰지 않습니다.
 - sidecar 파일은 자동 include가 아닙니다. 필요하면 기존 전역 지시문에서 직접 언급해야 합니다.

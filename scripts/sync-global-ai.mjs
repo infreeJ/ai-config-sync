@@ -9,7 +9,10 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { basename, dirname, join, resolve } from 'node:path';
+import { stdin as input, stdout as output } from 'node:process';
+import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(join(dirname(fileURLToPath(import.meta.url)), '..'));
@@ -17,10 +20,13 @@ const SOURCE_ROOT = join(ROOT, 'sources');
 const SOURCE_SKILLS = join(SOURCE_ROOT, 'skills');
 const SOURCE_AGENTS = join(SOURCE_ROOT, 'agents');
 const CONFIG_FILE = join(ROOT, 'sync.config.json');
-const DRY_RUN = process.argv.includes('--dry-run');
+const DRY_RUN_REQUESTED = process.argv.includes('--dry-run');
+const YES_REQUESTED = process.argv.includes('--yes');
+const PRE_COMMIT_REQUESTED = process.argv.includes('--pre-commit');
 
 const DEFAULT_CONFIG = {
   instructionsMode: 'sidecar',
+  preCommitSync: 'off',
   codexAgentDefaults: {
     model: 'gpt-5',
     reasoningEffort: 'high',
@@ -56,20 +62,37 @@ const TARGETS = {
 
 const HEADER = 'AUTO-GENERATED from ai-config-sync. Edit the source under sources/.';
 const INSTRUCTION_MODES = new Set(['off', 'sidecar', 'managed']);
-const stats = {
-  create: 0,
-  overwrite: 0,
-  unchanged: 0,
-  skipped: 0,
-};
-const operations = {
-  targetRoots: [],
-  instructions: [],
-  skills: [],
-  agents: [],
-  skipped: [],
-};
-const plannedCreates = new Set();
+const PRE_COMMIT_SYNC_MODES = new Set(['on', 'off']);
+let DRY_RUN = true;
+let stats;
+let operations;
+let plannedCreates;
+
+function createStats() {
+  return {
+    create: 0,
+    overwrite: 0,
+    unchanged: 0,
+    skipped: 0,
+  };
+}
+
+function createOperations() {
+  return {
+    targetRoots: [],
+    instructions: [],
+    skills: [],
+    agents: [],
+    skipped: [],
+  };
+}
+
+function resetRunState(dryRun) {
+  DRY_RUN = dryRun;
+  stats = createStats();
+  operations = createOperations();
+  plannedCreates = new Set();
+}
 
 function readConfig() {
   if (!existsSync(CONFIG_FILE)) return DEFAULT_CONFIG;
@@ -94,7 +117,11 @@ if (!INSTRUCTION_MODES.has(config.instructionsMode)) {
     `Invalid instructionsMode "${config.instructionsMode}". Expected one of: off, sidecar, managed.`,
   );
 }
+if (!PRE_COMMIT_SYNC_MODES.has(config.preCommitSync)) {
+  throw new Error(`Invalid preCommitSync "${config.preCommitSync}". Expected one of: on, off.`);
+}
 const instructionMode = config.instructionsMode;
+const preCommitSync = config.preCommitSync;
 
 function instructionSpecsForMode(mode) {
   if (mode === 'off') return [];
@@ -392,10 +419,6 @@ function syncAgents() {
   return count;
 }
 
-const instructions = syncInstructions();
-const skills = syncSkills();
-const agents = syncAgents();
-
 function operationLine(operation) {
   const target = operation.destination ? `${operation.label} -> ${operation.destination}` : operation.label;
   return `  ${operation.action.padEnd(10)} ${target}`;
@@ -406,7 +429,47 @@ function appendOperationSection(lines, title, sectionOperations) {
   lines.push('', title, ...sectionOperations.map(operationLine));
 }
 
-function printReport() {
+function hasChangingOperations() {
+  return Object.entries(operations)
+    .filter(([section]) => section !== 'skipped')
+    .some(([, sectionOperations]) => sectionOperations.length > 0);
+}
+
+function readGitHooksPath() {
+  try {
+    return execFileSync('git', ['config', '--get', 'core.hooksPath'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return '';
+  }
+}
+
+function samePath(left, right) {
+  const resolvedLeft = resolve(left);
+  const resolvedRight = resolve(right);
+  if (process.platform === 'win32') {
+    return resolvedLeft.toLowerCase() === resolvedRight.toLowerCase();
+  }
+  return resolvedLeft === resolvedRight;
+}
+
+function isPreCommitHookConfigured() {
+  const hooksPath = readGitHooksPath();
+  if (!hooksPath) return false;
+  return samePath(resolve(ROOT, hooksPath), join(ROOT, 'scripts', 'hooks'));
+}
+
+function reportNotices() {
+  if (preCommitSync !== 'on' || isPreCommitHookConfigured()) return [];
+  return [
+    'preCommitSync is on, but git core.hooksPath is not set to scripts/hooks. Run: git config core.hooksPath scripts/hooks',
+  ];
+}
+
+function printReport(result) {
   const lines = [`[sync-global-ai] ${DRY_RUN ? 'dry-run plan' : 'sync result'}`, `mode: ${instructionMode}`];
   if (instructionSpecs.length === 0) {
     lines.push('instruction targets: none');
@@ -419,15 +482,17 @@ function printReport() {
   appendOperationSection(lines, 'Skills', operations.skills);
   appendOperationSection(lines, 'Agents', operations.agents);
 
-  const hasChangingOperations = Object.entries(operations)
-    .filter(([section]) => section !== 'skipped')
-    .some(([, sectionOperations]) => sectionOperations.length > 0);
-  if (!hasChangingOperations) {
+  if (!hasChangingOperations()) {
     lines.push('', '(no changes)');
   }
 
   if (operations.skipped.length > 0) {
     lines.push('', 'Skipped', ...operations.skipped.map((message) => `  ${message}`));
+  }
+
+  const notices = reportNotices();
+  if (notices.length > 0) {
+    lines.push('', 'Notices', ...notices.map((message) => `  ${message}`));
   }
 
   lines.push(
@@ -437,11 +502,70 @@ function printReport() {
     `  overwrite: ${stats.overwrite}`,
     `  unchanged: ${stats.unchanged}`,
     `  skipped: ${stats.skipped}`,
-    `  scanned: ${instructions} instruction file(s), ${skills} skill(s), ${agents} agent(s)`,
+    `  scanned: ${result.instructions} instruction file(s), ${result.skills} skill(s), ${result.agents} agent(s)`,
     '  preserved unrelated global entries: yes',
   );
 
   console.log(lines.join('\n'));
 }
 
-printReport();
+function runSync(dryRun) {
+  resetRunState(dryRun);
+  const result = {
+    instructions: syncInstructions(),
+    skills: syncSkills(),
+    agents: syncAgents(),
+  };
+  result.hasChanges = hasChangingOperations();
+  printReport(result);
+  return result;
+}
+
+async function confirmSync() {
+  const rl = createInterface({ input, output });
+  try {
+    output.write('\nApply these changes? [y/N] ');
+    for await (const line of rl) {
+      const answer = line.trim();
+      if (answer === 'Y' || answer === 'y') return true;
+      if (answer === 'N' || answer === 'n' || answer === '') return false;
+      output.write('Please answer Y or N.\n\nApply these changes? [y/N] ');
+    }
+    return false;
+  } finally {
+    rl.close();
+  }
+}
+
+async function main() {
+  if (DRY_RUN_REQUESTED) {
+    runSync(true);
+    return;
+  }
+
+  if (PRE_COMMIT_REQUESTED && preCommitSync === 'off') {
+    console.log('[sync-global-ai] pre-commit sync skipped because preCommitSync is off.');
+    return;
+  }
+
+  const plan = runSync(true);
+  if (!plan.hasChanges) {
+    console.log('\nNo changes to apply; sync cancelled without writing.');
+    return;
+  }
+
+  if (YES_REQUESTED || PRE_COMMIT_REQUESTED) {
+    console.log(
+      PRE_COMMIT_REQUESTED
+        ? '\n--pre-commit provided; applying planned changes without prompting.'
+        : '\n--yes provided; applying planned changes without prompting.',
+    );
+  } else if (!(await confirmSync())) {
+    console.log('Sync cancelled; no files were written.');
+    return;
+  }
+
+  runSync(false);
+}
+
+await main();
