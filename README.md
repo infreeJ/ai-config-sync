@@ -135,6 +135,7 @@ Agent instructions go here.
 ```json
 {
   "instructionsMode": "sidecar",
+  "preCommitSync": "off",
   "codexAgentDefaults": {
     "model": "gpt-5.5",
     "reasoningEffort": "high"
@@ -158,15 +159,25 @@ Agent instructions go here.
 | `sidecar` | `~/.codex/AGENTS-sync.md`, `~/.claude/CLAUDE-sync.md`를 씁니다. 기존 `AGENTS.md`, `CLAUDE.md`는 덮어쓰지 않습니다. | 안전한 기본값입니다. 다만 기존 전역 지시문에서 sidecar 파일을 참고하도록 직접 연결해야 의미가 있습니다. |
 | `managed` | `~/.codex/AGENTS.md`, `~/.claude/CLAUDE.md`에 직접 씁니다. | 기존 전역 지시문을 덮어씁니다. 반드시 명시적으로 선택하고, 기존 파일을 먼저 백업하세요. |
 
+### preCommitSync
+
+`preCommitSync`는 `on`, `off` 중 하나여야 합니다.
+
+- 기본값은 `off`입니다.
+- `on`: `scripts/hooks/pre-commit`이 실행될 때 설정을 동기화합니다. 커밋 중 프롬프트가 뜨지 않도록 `--pre-commit` 모드로 바로 적용합니다.
+- `off`: `scripts/hooks/pre-commit`이 실행되어도 동기화하지 않고 안내 메시지만 출력한 뒤 정상 종료합니다.
+
 ## 선택 사항: Git hook
 
-커밋 전에 자동으로 동기화하고 싶다면 Git hook 경로를 설정할 수 있습니다.
+커밋 전에 자동으로 동기화하고 싶다면 `preCommitSync: "on"`으로 바꾸고 Git hook 경로를 별도로 설정합니다.
 
 ```sh
 git config core.hooksPath scripts/hooks
 ```
 
-이 설정을 켜면 커밋 전에 `scripts/hooks/pre-commit`이 실행됩니다. 훅은 커밋 중 입력 대기로 멈추지 않도록 `node scripts/sync-global-ai.mjs --yes`를 실행해 계획 출력 후 바로 적용합니다. 커밋할 때마다 전역 Claude/Codex 설정도 함께 갱신되길 원할 때만 사용하세요.
+이 설정을 켜면 커밋 전에 `scripts/hooks/pre-commit`이 실행됩니다. 훅은 `node scripts/sync-global-ai.mjs --pre-commit`을 실행하며, `sync.config.json`의 `preCommitSync` 값을 따릅니다.
+
+`preCommitSync: "on"`인데 `core.hooksPath`가 `scripts/hooks`로 설정되어 있지 않으면 dry-run과 sync 리포트에 설정 안내가 출력됩니다.
 
 ## 안전하게 쓰기 위한 규칙
 

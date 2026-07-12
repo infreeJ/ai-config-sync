@@ -9,6 +9,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { basename, dirname, join, resolve } from 'node:path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline';
@@ -21,9 +22,11 @@ const SOURCE_AGENTS = join(SOURCE_ROOT, 'agents');
 const CONFIG_FILE = join(ROOT, 'sync.config.json');
 const DRY_RUN_REQUESTED = process.argv.includes('--dry-run');
 const YES_REQUESTED = process.argv.includes('--yes');
+const PRE_COMMIT_REQUESTED = process.argv.includes('--pre-commit');
 
 const DEFAULT_CONFIG = {
   instructionsMode: 'sidecar',
+  preCommitSync: 'off',
   codexAgentDefaults: {
     model: 'gpt-5',
     reasoningEffort: 'high',
@@ -59,6 +62,7 @@ const TARGETS = {
 
 const HEADER = 'AUTO-GENERATED from ai-config-sync. Edit the source under sources/.';
 const INSTRUCTION_MODES = new Set(['off', 'sidecar', 'managed']);
+const PRE_COMMIT_SYNC_MODES = new Set(['on', 'off']);
 let DRY_RUN = true;
 let stats;
 let operations;
@@ -113,7 +117,11 @@ if (!INSTRUCTION_MODES.has(config.instructionsMode)) {
     `Invalid instructionsMode "${config.instructionsMode}". Expected one of: off, sidecar, managed.`,
   );
 }
+if (!PRE_COMMIT_SYNC_MODES.has(config.preCommitSync)) {
+  throw new Error(`Invalid preCommitSync "${config.preCommitSync}". Expected one of: on, off.`);
+}
 const instructionMode = config.instructionsMode;
+const preCommitSync = config.preCommitSync;
 
 function instructionSpecsForMode(mode) {
   if (mode === 'off') return [];
@@ -427,6 +435,40 @@ function hasChangingOperations() {
     .some(([, sectionOperations]) => sectionOperations.length > 0);
 }
 
+function readGitHooksPath() {
+  try {
+    return execFileSync('git', ['config', '--get', 'core.hooksPath'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return '';
+  }
+}
+
+function samePath(left, right) {
+  const resolvedLeft = resolve(left);
+  const resolvedRight = resolve(right);
+  if (process.platform === 'win32') {
+    return resolvedLeft.toLowerCase() === resolvedRight.toLowerCase();
+  }
+  return resolvedLeft === resolvedRight;
+}
+
+function isPreCommitHookConfigured() {
+  const hooksPath = readGitHooksPath();
+  if (!hooksPath) return false;
+  return samePath(resolve(ROOT, hooksPath), join(ROOT, 'scripts', 'hooks'));
+}
+
+function reportNotices() {
+  if (preCommitSync !== 'on' || isPreCommitHookConfigured()) return [];
+  return [
+    'preCommitSync is on, but git core.hooksPath is not set to scripts/hooks. Run: git config core.hooksPath scripts/hooks',
+  ];
+}
+
 function printReport(result) {
   const lines = [`[sync-global-ai] ${DRY_RUN ? 'dry-run plan' : 'sync result'}`, `mode: ${instructionMode}`];
   if (instructionSpecs.length === 0) {
@@ -446,6 +488,11 @@ function printReport(result) {
 
   if (operations.skipped.length > 0) {
     lines.push('', 'Skipped', ...operations.skipped.map((message) => `  ${message}`));
+  }
+
+  const notices = reportNotices();
+  if (notices.length > 0) {
+    lines.push('', 'Notices', ...notices.map((message) => `  ${message}`));
   }
 
   lines.push(
@@ -496,14 +543,23 @@ async function main() {
     return;
   }
 
+  if (PRE_COMMIT_REQUESTED && preCommitSync === 'off') {
+    console.log('[sync-global-ai] pre-commit sync skipped because preCommitSync is off.');
+    return;
+  }
+
   const plan = runSync(true);
   if (!plan.hasChanges) {
     console.log('\nNo changes to apply; sync cancelled without writing.');
     return;
   }
 
-  if (YES_REQUESTED) {
-    console.log('\n--yes provided; applying planned changes without prompting.');
+  if (YES_REQUESTED || PRE_COMMIT_REQUESTED) {
+    console.log(
+      PRE_COMMIT_REQUESTED
+        ? '\n--pre-commit provided; applying planned changes without prompting.'
+        : '\n--yes provided; applying planned changes without prompting.',
+    );
   } else if (!(await confirmSync())) {
     console.log('Sync cancelled; no files were written.');
     return;
