@@ -20,6 +20,7 @@ const SOURCE_SKILLS = join(SOURCE_ROOT, 'skills');
 const SOURCE_AGENTS = join(SOURCE_ROOT, 'agents');
 const CONFIG_FILE = join(ROOT, 'sync.config.json');
 const DRY_RUN_REQUESTED = process.argv.includes('--dry-run');
+const YES_REQUESTED = process.argv.includes('--yes');
 
 const DEFAULT_CONFIG = {
   instructionsMode: 'sidecar',
@@ -501,7 +502,9 @@ async function main() {
     return;
   }
 
-  if (!(await confirmSync())) {
+  if (YES_REQUESTED) {
+    console.log('\n--yes provided; applying planned changes without prompting.');
+  } else if (!(await confirmSync())) {
     console.log('Sync cancelled; no files were written.');
     return;
   }

@@ -1,4 +1,4 @@
 #!/bin/sh
 set -e
 
-node scripts/sync-global-ai.mjs
+node scripts/sync-global-ai.mjs --yes
