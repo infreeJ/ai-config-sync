@@ -2,20 +2,20 @@
   "instructionsMode": "sidecar",
   "preCommitSync": "off",
   "codexAgentDefaults": {
-    "model": "gpt-5.5",
+    "model": "gpt-5.6-terra",
     "reasoningEffort": "high"
   },
   "codexAgentModelMap": {
     "opus": {
-      "model": "gpt-5.5",
+      "model": "gpt-5.6-sol",
       "reasoningEffort": "xhigh"
     },
     "sonnet": {
-      "model": "gpt-5.5",
+      "model": "gpt-5.6-terra",
       "reasoningEffort": "high"
     },
     "haiku": {
-      "model": "gpt-5.5",
+      "model": "gpt-5.6-terra",
       "reasoningEffort": "medium"
     }
   }
