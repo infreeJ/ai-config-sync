@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "sync": "node scripts/sync-global-ai.mjs",
-    "sync:dry": "node scripts/sync-global-ai.mjs --dry-run"
+    "sync:dry": "node scripts/sync-global-ai.mjs --dry-run",
+    "sync:yes": "node scripts/sync-global-ai.mjs --yes"
   }
 }
