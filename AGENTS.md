@@ -1,78 +1,21 @@
-# ai-config-sync Agent Instructions
+# ai-config-sync 작업 규칙
 
-This repository is the source of truth for shared Claude and Codex configuration. Do not edit generated files directly under global `~/.claude` or `~/.codex` paths. Make changes under `sources/`, then sync when explicitly requested.
+이 저장소는 Claude와 Codex의 공유 설정을 관리하는 원본 저장소다. 사용법과 동기화 동작은 [README.md](README.md)를 참고한다.
 
-## Repository Role
+## 수정 위치
 
-- `sources/AGENTS.md`: source file for Codex global instructions.
-- `sources/CLAUDE.md`: source file for Claude global instructions.
-- `sources/skills/`: source directories for skills copied to both Claude and Codex.
-- `sources/agents/`: source Markdown agents copied to Claude and converted to Codex TOML.
-- `scripts/sync-global-ai.mjs`: sync script that deploys repository sources to global Claude/Codex paths.
-- `sync.config.json`: sync configuration, including instruction sync mode and Codex agent model mapping.
-- `scripts/hooks/pre-commit`: optional Git hook entrypoint for pre-commit syncing.
+- 전역 지시문은 `sources/AGENTS.md`, `sources/CLAUDE.md`에서만 수정한다.
+- Skill은 `sources/skills/<skill-name>/` 아래에서 관리하며, 중심 파일은 `SKILL.md`다.
+- Agent 원본은 `sources/agents/<agent-name>.md`에 Markdown으로 작성한다.
+- 루트에 `agents/`, `skills/`, `instructions/` 같은 별도 원본 디렉터리를 만들지 않는다.
 
-## Sync Behavior
+## 생성물 및 동기화
 
-Instruction syncing is controlled by `instructionsMode` in `sync.config.json`.
+- 전역 `~/.claude`, `~/.codex` 아래의 파일은 생성물이므로 직접 수정하지 않는다.
+- 저장소 원본을 전역 설정 경로에 반영하는 sync 명령은 사용자가 명시적으로 요청한 경우에만 실행한다.
+- `sync.config.json`의 기본 안전 설정을 바꾸거나 전역 지시문을 덮어쓰는 동작을 추가할 때는 사용자의 명시적 의도를 확인한다.
 
-- `off`: do not sync instruction files. Skills and agents are still synced.
-- `sidecar`: write `sources/AGENTS.md` to `~/.codex/AGENTS-sync.md` and `sources/CLAUDE.md` to `~/.claude/CLAUDE-sync.md`. This is the default mode.
-- `managed`: write `sources/AGENTS.md` to `~/.codex/AGENTS.md` and `sources/CLAUDE.md` to `~/.claude/CLAUDE.md`, overwriting existing global instruction files.
+## 호환성
 
-Skill syncing:
-
-- `sources/skills/<name>/` is copied to `~/.claude/skills/<name>/`.
-- `sources/skills/<name>/` is copied to `~/.codex/skills/<name>/`.
-- Same-name global skill directories are replaced.
-- Unrelated global skill entries are preserved.
-
-Agent syncing:
-
-- `sources/agents/<name>.md` is copied to `~/.claude/agents/<name>.md`.
-- The same source agent is converted to TOML and written to `~/.codex/agents/<name>.toml`.
-- Same-name stale agent variants may be removed before writing the current format.
-- Unrelated global agent entries are preserved.
-
-Codex built-in items such as `~/.codex/skills/.system` are not managed by this repository.
-
-## Authoring Rules
-
-- Edit global instruction sources only in `sources/AGENTS.md` and `sources/CLAUDE.md`.
-- Write skills under `sources/skills/<skill-name>/`, centered on `SKILL.md`.
-- Write agents as top-level Markdown files under `sources/agents/<agent-name>.md`.
-- Keep agent frontmatter fields `name`, `description`, and `model`.
-- Keep agent `model` values aligned with `sync.config.json` and its `codexAgentModelMap`.
-- Do not manually create or edit generated Codex `.toml` agent files.
-- Do not edit files directly under global `~/.claude` or `~/.codex` paths as part of repository changes.
-
-## Operational Commands
-
-These commands affect global Claude/Codex configuration. Run them only when the user explicitly asks.
-
-Preview sync impact:
-
-```sh
-npm run sync:dry
-```
-
-Apply sync to global Claude/Codex paths:
-
-```sh
-npm run sync
-```
-
-Configure the optional Git hook:
-
-```sh
-git config core.hooksPath scripts/hooks
-```
-
-## Safety Notes
-
-- Keep `sidecar` as the default instruction mode for public-template safety.
-- In `sidecar` mode, existing global `AGENTS.md` and `CLAUDE.md` files are not overwritten.
-- Sidecar files are not guaranteed includes. Users must manually reference them from their existing global instruction files if they want tools to consider them.
-- Use `managed` mode only when the user explicitly wants this repository to replace global instruction files directly.
-- Preserve the sync script's path safety checks so it cannot write outside the intended global Claude/Codex roots.
-- Do not add root-level `agents/`, `skills/`, or `instructions/` source directories. Managed source content belongs under `sources/`.
+- Agent frontmatter에는 `name`, `description`, `model`을 유지한다.
+- Agent의 `model` 값은 `sync.config.json`의 모델 매핑과 일치시킨다.
