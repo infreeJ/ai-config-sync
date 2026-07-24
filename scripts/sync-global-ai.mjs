@@ -25,7 +25,7 @@ const YES_REQUESTED = process.argv.includes('--yes');
 const PRE_COMMIT_REQUESTED = process.argv.includes('--pre-commit');
 
 const DEFAULT_CONFIG = {
-  instructionsMode: 'sidecar',
+  instructionsMode: 'append',
   preCommitSync: 'off',
   codexAgentDefaults: {
     model: 'gpt-5',
@@ -61,7 +61,9 @@ const TARGETS = {
 };
 
 const HEADER = 'AUTO-GENERATED from ai-config-sync. Edit the source under sources/.';
-const INSTRUCTION_MODES = new Set(['off', 'sidecar', 'managed']);
+const MANAGED_INSTRUCTION_BEGIN = '<!-- ai-config-sync:begin instruction -->';
+const MANAGED_INSTRUCTION_END = '<!-- ai-config-sync:end instruction -->';
+const INSTRUCTION_MODES = new Set(['append', 'off', 'sidecar', 'managed']);
 const PRE_COMMIT_SYNC_MODES = new Set(['on', 'off']);
 let DRY_RUN = true;
 let stats;
@@ -114,7 +116,7 @@ function readConfig() {
 const config = readConfig();
 if (!INSTRUCTION_MODES.has(config.instructionsMode)) {
   throw new Error(
-    `Invalid instructionsMode "${config.instructionsMode}". Expected one of: off, sidecar, managed.`,
+    `Invalid instructionsMode "${config.instructionsMode}". Expected one of: append, off, sidecar, managed.`,
   );
 }
 if (!PRE_COMMIT_SYNC_MODES.has(config.preCommitSync)) {
@@ -127,7 +129,7 @@ function instructionSpecsForMode(mode) {
   if (mode === 'off') return [];
 
   const destinations =
-    mode === 'managed'
+    mode === 'managed' || mode === 'append'
       ? {
           codex: TARGETS.codex.agentsMd,
           claude: TARGETS.claude.claudeMd,
@@ -279,7 +281,54 @@ function writeFile(destination, content, targetRoot, operation) {
   writeFileSync(destination, content);
 }
 
+function countOccurrences(text, needle) {
+  let count = 0;
+  let position = text.indexOf(needle);
+  while (position !== -1) {
+    count += 1;
+    position = text.indexOf(needle, position + needle.length);
+  }
+  return count;
+}
+
+function managedInstructionBlock(source) {
+  const separator = source.endsWith('\n') ? '' : '\n';
+  return `${MANAGED_INSTRUCTION_BEGIN}\n${source}${separator}${MANAGED_INSTRUCTION_END}`;
+}
+
+function appendManagedInstruction(destination, source) {
+  const managedBlock = managedInstructionBlock(source);
+  if (!existsSync(destination)) return managedBlock;
+
+  const destinationStat = statSync(destination);
+  if (!destinationStat.isFile()) {
+    throw new Error(`Global instruction target is not a file: ${destination}`);
+  }
+
+  const existing = readFileSync(destination, 'utf8');
+  const beginCount = countOccurrences(existing, MANAGED_INSTRUCTION_BEGIN);
+  const endCount = countOccurrences(existing, MANAGED_INSTRUCTION_END);
+  if (beginCount === 0 && endCount === 0) {
+    const separator = existing.length === 0 || existing.endsWith('\n') ? '' : '\n';
+    return `${existing}${separator}${managedBlock}`;
+  }
+
+  const beginIndex = existing.indexOf(MANAGED_INSTRUCTION_BEGIN);
+  const endIndex = existing.indexOf(MANAGED_INSTRUCTION_END);
+  if (beginCount !== 1 || endCount !== 1 || beginIndex > endIndex) {
+    throw new Error(
+      `Malformed managed instruction markers in ${destination}. Expected exactly one "${MANAGED_INSTRUCTION_BEGIN}" before exactly one "${MANAGED_INSTRUCTION_END}".`,
+    );
+  }
+
+  const managedEnd = endIndex + MANAGED_INSTRUCTION_END.length;
+  const existingManagedBlock = existing.slice(beginIndex, managedEnd);
+  if (existingManagedBlock === managedBlock) return existing;
+  return `${existing.slice(0, beginIndex)}${managedBlock}${existing.slice(managedEnd)}`;
+}
+
 function syncInstructions() {
+  const plans = [];
   let count = 0;
   for (const spec of instructionSpecs) {
     if (!existsSync(spec.source)) {
@@ -293,12 +342,20 @@ function syncInstructions() {
       continue;
     }
 
+    const source = readFileSync(spec.source, 'utf8');
+    plans.push({
+      spec,
+      content: instructionMode === 'append' ? appendManagedInstruction(spec.destination, source) : source,
+    });
+    count += 1;
+  }
+
+  for (const { spec, content } of plans) {
     ensureTargetRoot(spec.target);
-    writeFile(spec.destination, readFileSync(spec.source), spec.target.root, {
+    writeFile(spec.destination, content, spec.target.root, {
       section: 'instructions',
       label: join('sources', spec.name),
     });
-    count += 1;
   }
   return count;
 }
