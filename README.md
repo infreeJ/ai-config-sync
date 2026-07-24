@@ -53,15 +53,35 @@ sync.config.json
 
 | 모드 | 동작 |
 | --- | --- |
-| `sidecar` (기본값) | `AGENTS-sync.md`, `CLAUDE-sync.md`만 쓰며 기존 전역 지시문을 보존합니다. |
+| `append` (기본값) | 기존 전역 지시문의 관리 마커 블록에만 원본 지시문을 추가하거나 갱신합니다. |
 | `managed` | 기존 전역 지시문인 `~/.codex/AGENTS.md`, `~/.claude/CLAUDE.md`를 원본으로 교체합니다. |
 | `off` | 지시문은 건너뛰고 skills와 agents만 동기화합니다. |
+| `sidecar` | `AGENTS-sync.md`, `CLAUDE-sync.md`만 씁니다. (실험적 옵션)|
 
-### 1. `sidecar`: 공유 설정과 로컬 설정 분리
+### 1. `append`: 공유 설정과 로컬 설정 함께 관리
 
-기본값인 `sidecar` 모드는 기존 전역 지시문을 덮어쓰지 않고, 저장소의 지시문을 `AGENTS-sync.md`와 `CLAUDE-sync.md`로 별도 동기화합니다.
+기본값인 `append` 모드는 기존 전역 지시문에 아래 관리 블록이 없으면 끝에 추가하고, 있으면 블록 안의 내용만 저장소 원본으로 갱신합니다. 시작 마커 바로 다음의 경로 마커는 단일 원본 저장소인 `sources/`의 절대 경로를 나타냅니다. 마커 블록 밖의 컴퓨터별 지시문은 그대로 보존합니다.
 
-처음 도입할 때 기존 설정을 안전하게 보존할 수 있습니다. 필요하다면 컴퓨터마다 다른 경로·도구·환경 설정은 기존 전역 지시문에 유지하고, 여러 컴퓨터에 공통으로 적용할 지시는 이 저장소에서 관리할 수도 있습니다.
+```md
+<!-- ai-config-sync:begin instruction -->
+<!-- AUTO-GENERATED from C:\path\to\ai-config-sync\sources -->
+저장소의 지시문 내용
+<!-- ai-config-sync:end instruction -->
+```
+
+시작 또는 종료 마커가 하나만 있거나, 마커가 여러 개이거나, 종료 마커가 시작 마커보다 앞에 있으면 동기화를 중단합니다. 이 경우에는 파일을 수정하지 않습니다.
+
+### 2. `managed`: 전역 지시문을 단일 원본으로 관리
+
+`managed` 모드는 저장소의 지시문을 기존 전역 지시문 파일에 직접 씁니다. 전역 지시문도 이 저장소에서만 관리하고 싶을 때 사용하며, 기존 컴퓨터별 설정을 덮어쓰므로 먼저 백업해야 합니다.
+
+### 3. `off`: 지시문 동기화 생략
+
+`off` 모드는 전역 지시문을 건드리지 않고 skills와 agents만 동기화합니다.
+
+### 4. `sidecar`: 공유 설정과 로컬 설정 분리
+
+`sidecar` 모드는 기존 전역 지시문을 덮어쓰지 않고, 저장소의 지시문을 `AGENTS-sync.md`와 `CLAUDE-sync.md`로 별도 동기화합니다.
 
 `-sync` 파일은 자동으로 포함되지 않으므로, 기존 전역 지시문에서 해당 파일을 참고하도록 한 번 연결해야 합니다.
 
@@ -71,9 +91,7 @@ Also review and follow the repository-managed instructions in ~/.codex/AGENTS-sy
 
 Claude에서는 경로만 `~/.claude/CLAUDE-sync.md`로 바꾸면 됩니다.
 
-### 2. `managed`: 전역 지시문을 단일 원본으로 관리
-
-`managed` 모드는 저장소의 지시문을 기존 전역 지시문 파일에 직접 씁니다. 전역 지시문도 이 저장소에서만 관리하고 싶을 때 사용하며, 기존 컴퓨터별 설정을 덮어쓰므로 먼저 백업해야 합니다.
+> `sidecar` 모드는 실험적 옵션이며, 사용은 권장하지 않습니다.
 
 <br>
 
@@ -119,5 +137,5 @@ git config core.hooksPath scripts/hooks
 
 - 수정은 항상 `sources/`에서만 합니다.
 - 적용 전에는 `npm run sync:dry`로 계획을 확인합니다.
-- 기본 `sidecar` 모드는 기존 전역 지시문을 덮어쓰지 않습니다.
+- 기본 `append` 모드는 관리 마커 블록 밖의 기존 전역 지시문을 보존합니다.
 - 스크립트는 Claude/Codex의 지정 전역 루트 밖으로 쓰지 않도록 경로를 검증합니다.
