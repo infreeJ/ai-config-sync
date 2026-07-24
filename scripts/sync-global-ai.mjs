@@ -63,6 +63,7 @@ const TARGETS = {
 const HEADER = 'AUTO-GENERATED from ai-config-sync. Edit the source under sources/.';
 const MANAGED_INSTRUCTION_BEGIN = '<!-- ai-config-sync:begin instruction -->';
 const MANAGED_INSTRUCTION_END = '<!-- ai-config-sync:end instruction -->';
+const MANAGED_INSTRUCTION_SOURCE = `<!-- AUTO-GENERATED from ${SOURCE_ROOT} -->`;
 const INSTRUCTION_MODES = new Set(['append', 'off', 'sidecar', 'managed']);
 const PRE_COMMIT_SYNC_MODES = new Set(['on', 'off']);
 let DRY_RUN = true;
@@ -293,7 +294,7 @@ function countOccurrences(text, needle) {
 
 function managedInstructionBlock(source) {
   const separator = source.endsWith('\n') ? '' : '\n';
-  return `${MANAGED_INSTRUCTION_BEGIN}\n${source}${separator}${MANAGED_INSTRUCTION_END}`;
+  return `${MANAGED_INSTRUCTION_BEGIN}\n${MANAGED_INSTRUCTION_SOURCE}\n${source}${separator}${MANAGED_INSTRUCTION_END}`;
 }
 
 function appendManagedInstruction(destination, source) {

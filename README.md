@@ -60,10 +60,11 @@ sync.config.json
 
 ### 1. `append`: 공유 설정과 로컬 설정 함께 관리
 
-기본값인 `append` 모드는 기존 전역 지시문에 아래 관리 블록이 없으면 끝에 추가하고, 있으면 블록 안의 내용만 저장소 원본으로 갱신합니다. 마커 블록 밖의 컴퓨터별 지시문은 그대로 보존합니다.
+기본값인 `append` 모드는 기존 전역 지시문에 아래 관리 블록이 없으면 끝에 추가하고, 있으면 블록 안의 내용만 저장소 원본으로 갱신합니다. 시작 마커 바로 다음의 경로 마커는 단일 원본 저장소인 `sources/`의 절대 경로를 나타냅니다. 마커 블록 밖의 컴퓨터별 지시문은 그대로 보존합니다.
 
 ```md
 <!-- ai-config-sync:begin instruction -->
+<!-- AUTO-GENERATED from C:\path\to\ai-config-sync\sources -->
 저장소의 지시문 내용
 <!-- ai-config-sync:end instruction -->
 ```
