@@ -220,6 +220,83 @@ test('off mode does not modify or create global instruction files', () => {
   }
 });
 
+test('syncs nested skills and Markdown agents while preserving unrelated global entries idempotently', () => {
+  const environment = createTestEnvironment();
+  try {
+    const sourceSkill = join(environment.repository, 'sources', 'skills', 'nested-skill');
+    const sourceAgent = join(environment.repository, 'sources', 'agents', 'review-agent.md');
+    const claudeSkill = join(environment.home, '.claude', 'skills', 'nested-skill');
+    const codexSkill = join(environment.home, '.codex', 'skills', 'nested-skill');
+    const claudeAgent = join(environment.home, '.claude', 'agents', 'review-agent.md');
+    const codexAgent = join(environment.home, '.codex', 'agents', 'review-agent.toml');
+    const agentMarkdown = [
+      '---',
+      'name: review-agent',
+      'description: Reviews implementation changes',
+      'model: opus',
+      '---',
+      '',
+      '# Review agent',
+      '',
+      'Inspect the requested implementation.',
+      '',
+    ].join('\n');
+
+    writeSyncConfig(environment.repository, { instructionsMode: 'off' });
+    mkdirSync(join(sourceSkill, 'references'), { recursive: true });
+    mkdirSync(join(environment.home, '.claude', 'skills', 'preserved-skill'), { recursive: true });
+    mkdirSync(join(environment.home, '.codex', 'skills', 'preserved-skill'), { recursive: true });
+    mkdirSync(join(environment.home, '.claude', 'agents'), { recursive: true });
+    mkdirSync(join(environment.home, '.codex', 'agents'), { recursive: true });
+    mkdirSync(join(environment.repository, 'sources', 'agents'), { recursive: true });
+    writeFileSync(join(sourceSkill, 'SKILL.md'), '# Nested skill\n');
+    writeFileSync(join(sourceSkill, 'references', 'guide.md'), 'Nested reference\n');
+    writeFileSync(join(environment.home, '.claude', 'skills', 'preserved-skill', 'SKILL.md'), 'Claude local skill\n');
+    writeFileSync(join(environment.home, '.codex', 'skills', 'preserved-skill', 'SKILL.md'), 'Codex local skill\n');
+    writeFileSync(sourceAgent, agentMarkdown);
+    writeFileSync(join(environment.home, '.claude', 'agents', 'review-agent.toml'), 'stale Claude variant\n');
+    writeFileSync(join(environment.home, '.claude', 'agents', 'review-agent'), 'stale Claude extensionless variant\n');
+    writeFileSync(join(environment.home, '.codex', 'agents', 'review-agent.md'), 'stale Codex variant\n');
+    writeFileSync(join(environment.home, '.codex', 'agents', 'review-agent'), 'stale Codex extensionless variant\n');
+
+    const firstRun = runSync(environment);
+
+    assert.equal(firstRun.status, 0, firstRun.output);
+    assert.equal(readFileSync(join(claudeSkill, 'SKILL.md'), 'utf8'), '# Nested skill\n');
+    assert.equal(readFileSync(join(claudeSkill, 'references', 'guide.md'), 'utf8'), 'Nested reference\n');
+    assert.equal(readFileSync(join(codexSkill, 'SKILL.md'), 'utf8'), '# Nested skill\n');
+    assert.equal(readFileSync(join(codexSkill, 'references', 'guide.md'), 'utf8'), 'Nested reference\n');
+    assert.equal(
+      readFileSync(join(environment.home, '.claude', 'skills', 'preserved-skill', 'SKILL.md'), 'utf8'),
+      'Claude local skill\n',
+    );
+    assert.equal(
+      readFileSync(join(environment.home, '.codex', 'skills', 'preserved-skill', 'SKILL.md'), 'utf8'),
+      'Codex local skill\n',
+    );
+    assert.equal(readFileSync(claudeAgent, 'utf8'), agentMarkdown);
+    assert.match(readFileSync(codexAgent, 'utf8'), /name = "review-agent"/);
+    assert.match(readFileSync(codexAgent, 'utf8'), /description = "Reviews implementation changes"/);
+    assert.match(readFileSync(codexAgent, 'utf8'), /model = "gpt-5\.6-sol"/);
+    assert.match(readFileSync(codexAgent, 'utf8'), /model_reasoning_effort = "xhigh"/);
+    assert.match(readFileSync(codexAgent, 'utf8'), /developer_instructions = "# Review agent\\n\\nInspect the requested implementation\."/);
+    assert.equal(existsSync(join(environment.home, '.claude', 'agents', 'review-agent.toml')), false);
+    assert.equal(existsSync(join(environment.home, '.claude', 'agents', 'review-agent')), false);
+    assert.equal(existsSync(join(environment.home, '.codex', 'agents', 'review-agent.md')), false);
+    assert.equal(existsSync(join(environment.home, '.codex', 'agents', 'review-agent')), false);
+
+    const homeAfterFirstRun = snapshotDirectory(environment.home);
+    const secondRun = runSync(environment);
+
+    assert.equal(secondRun.status, 0, secondRun.output);
+    assert.match(secondRun.output, /\(no changes\)/);
+    assert.match(secondRun.output, /No changes to apply; sync cancelled without writing\./);
+    assert.deepEqual(snapshotDirectory(environment.home), homeAfterFirstRun);
+  } finally {
+    environment.cleanup();
+  }
+});
+
 for (const invalidConfig of [
   {
     name: 'instructionsMode',
