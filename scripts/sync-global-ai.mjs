@@ -282,14 +282,18 @@ function writeFile(destination, content, targetRoot, operation) {
   writeFileSync(destination, content);
 }
 
-function countOccurrences(text, needle) {
-  let count = 0;
-  let position = text.indexOf(needle);
-  while (position !== -1) {
-    count += 1;
-    position = text.indexOf(needle, position + needle.length);
+function markerLineIndices(text, marker) {
+  const indices = [];
+  let lineStart = 0;
+  while (lineStart <= text.length) {
+    const lineBreak = text.indexOf('\n', lineStart);
+    const lineEnd = lineBreak === -1 ? text.length : lineBreak;
+    const contentEnd = text[lineEnd - 1] === '\r' ? lineEnd - 1 : lineEnd;
+    if (text.slice(lineStart, contentEnd) === marker) indices.push(lineStart);
+    if (lineBreak === -1) break;
+    lineStart = lineBreak + 1;
   }
-  return count;
+  return indices;
 }
 
 function managedInstructionBlock(source) {
@@ -307,15 +311,17 @@ function appendManagedInstruction(destination, source) {
   }
 
   const existing = readFileSync(destination, 'utf8');
-  const beginCount = countOccurrences(existing, MANAGED_INSTRUCTION_BEGIN);
-  const endCount = countOccurrences(existing, MANAGED_INSTRUCTION_END);
+  const beginIndices = markerLineIndices(existing, MANAGED_INSTRUCTION_BEGIN);
+  const endIndices = markerLineIndices(existing, MANAGED_INSTRUCTION_END);
+  const beginCount = beginIndices.length;
+  const endCount = endIndices.length;
   if (beginCount === 0 && endCount === 0) {
     const separator = existing.length === 0 || existing.endsWith('\n') ? '' : '\n';
     return `${existing}${separator}${managedBlock}`;
   }
 
-  const beginIndex = existing.indexOf(MANAGED_INSTRUCTION_BEGIN);
-  const endIndex = existing.indexOf(MANAGED_INSTRUCTION_END);
+  const beginIndex = beginIndices[0];
+  const endIndex = endIndices[0];
   if (beginCount !== 1 || endCount !== 1 || beginIndex > endIndex) {
     throw new Error(
       `Malformed managed instruction markers in ${destination}. Expected exactly one "${MANAGED_INSTRUCTION_BEGIN}" before exactly one "${MANAGED_INSTRUCTION_END}".`,
