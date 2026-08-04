@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdtempSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -162,6 +163,141 @@ test('--dry-run does not create or modify isolated global paths', () => {
     environment.cleanup();
   }
 });
+
+test('managed mode replaces complete global instruction files with their sources', () => {
+  const environment = createTestEnvironment();
+  try {
+    const codexInstructions = join(environment.home, '.codex', 'AGENTS.md');
+    const claudeInstructions = join(environment.home, '.claude', 'CLAUDE.md');
+    const codexSource = readFileSync(join(environment.repository, 'sources', 'AGENTS.md'), 'utf8');
+    const claudeSource = readFileSync(join(environment.repository, 'sources', 'CLAUDE.md'), 'utf8');
+    writeSyncConfig(environment.repository, { instructionsMode: 'managed' });
+    mkdirSync(join(environment.home, '.codex'));
+    mkdirSync(join(environment.home, '.claude'));
+    writeFileSync(codexInstructions, '## Local Codex instructions\nThis content is replaced.\n');
+    writeFileSync(claudeInstructions, '## Local Claude instructions\nThis content is replaced.\n');
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.equal(readFileSync(codexInstructions, 'utf8'), codexSource);
+    assert.equal(readFileSync(claudeInstructions, 'utf8'), claudeSource);
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('off mode does not modify or create global instruction files', () => {
+  for (const instructionCase of [
+    { directory: '.codex', fileName: 'AGENTS.md', missingDirectory: '.claude', missingFileName: 'CLAUDE.md' },
+    { directory: '.claude', fileName: 'CLAUDE.md', missingDirectory: '.codex', missingFileName: 'AGENTS.md' },
+  ]) {
+    const environment = createTestEnvironment();
+    try {
+      const existingInstructions = join(
+        environment.home,
+        instructionCase.directory,
+        instructionCase.fileName,
+      );
+      const missingInstructions = join(
+        environment.home,
+        instructionCase.missingDirectory,
+        instructionCase.missingFileName,
+      );
+      const existingContent = '## Local instructions\nKeep unchanged.\n';
+      writeSyncConfig(environment.repository, { instructionsMode: 'off' });
+      mkdirSync(join(environment.home, instructionCase.directory));
+      writeFileSync(existingInstructions, existingContent);
+
+      const result = runSync(environment);
+
+      assert.equal(result.status, 0, result.output);
+      assert.equal(readFileSync(existingInstructions, 'utf8'), existingContent);
+      assert.equal(existsSync(missingInstructions), false);
+    } finally {
+      environment.cleanup();
+    }
+  }
+});
+
+for (const invalidConfig of [
+  {
+    name: 'instructionsMode',
+    value: 'invalid',
+    error: /Invalid instructionsMode "invalid"/,
+  },
+  {
+    name: 'preCommitSync',
+    value: 'invalid',
+    error: /Invalid preCommitSync "invalid"/,
+  },
+]) {
+  test(`invalid ${invalidConfig.name} fails before writing the isolated home directory`, () => {
+    const environment = createTestEnvironment();
+    try {
+      const codexInstructions = join(environment.home, '.codex', 'AGENTS.md');
+      const claudeInstructions = join(environment.home, '.claude', 'CLAUDE.md');
+      const codexContent = '## Local Codex instructions\nKeep unchanged.\n';
+      const claudeContent = '## Local Claude instructions\nKeep unchanged.\n';
+      writeSyncConfig(environment.repository, { [invalidConfig.name]: invalidConfig.value });
+      addSyncSourceFixtures(environment.repository);
+      mkdirSync(join(environment.home, '.codex'));
+      mkdirSync(join(environment.home, '.claude'));
+      writeFileSync(codexInstructions, codexContent);
+      writeFileSync(claudeInstructions, claudeContent);
+      const homeBefore = snapshotDirectory(environment.home);
+
+      const result = runSync(environment);
+
+      assert.notEqual(result.status, 0);
+      assert.match(result.output, invalidConfig.error);
+      assert.deepEqual(snapshotDirectory(environment.home), homeBefore);
+    } finally {
+      environment.cleanup();
+    }
+  });
+}
+
+function addSyncSourceFixtures(repository) {
+  const skillDirectory = join(repository, 'sources', 'skills', 'watch-skill');
+  const agentDirectory = join(repository, 'sources', 'agents');
+  mkdirSync(skillDirectory, { recursive: true });
+  mkdirSync(agentDirectory, { recursive: true });
+  writeFileSync(join(skillDirectory, 'SKILL.md'), '# Watch skill\n');
+  writeFileSync(
+    join(agentDirectory, 'watch-agent.md'),
+    '---\nname: watch-agent\ndescription: Detects writes after invalid configuration\n---\n\nWatch agent.\n',
+  );
+}
+
+function snapshotDirectory(directory) {
+  const entries = [];
+
+  function visit(currentDirectory, relativeDirectory = '') {
+    const currentEntries = readdirSync(currentDirectory, { withFileTypes: true }).sort((left, right) =>
+      left.name.localeCompare(right.name),
+    );
+    for (const entry of currentEntries) {
+      const relativePath = relativeDirectory ? join(relativeDirectory, entry.name) : entry.name;
+      const fullPath = join(currentDirectory, entry.name);
+      if (entry.isDirectory()) {
+        entries.push({ path: relativePath, type: 'directory' });
+        visit(fullPath, relativePath);
+      } else if (entry.isFile()) {
+        entries.push({ path: relativePath, type: 'file', content: readFileSync(fullPath, 'utf8') });
+      }
+    }
+  }
+
+  visit(directory);
+  return entries;
+}
+
+function writeSyncConfig(repository, overrides) {
+  const configPath = join(repository, 'sync.config.json');
+  const config = JSON.parse(readFileSync(configPath, 'utf8'));
+  writeFileSync(configPath, `${JSON.stringify({ ...config, ...overrides }, null, 2)}\n`);
+}
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
