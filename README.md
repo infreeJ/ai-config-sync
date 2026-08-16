@@ -12,7 +12,7 @@
    npm run init
    ```
 
-   이 명령은 기본 구성을 `sources/`에 만들고, `.gitignore`에 포함된 `sources/`를 개인 저장소에서 추적할 수 있도록 `git add -f`로 스테이징합니다. 커밋과 개인 원격 저장소로의 push는 직접 수행합니다.
+   이 명령은 기본 구성을 `sources/`에 만들고, 개인 저장소에서 관리할 준비를 합니다.
 
 2. `sources/` 아래의 파일을 수정합니다.
 3. 동기화합니다.
@@ -39,14 +39,11 @@ sources/
   CLAUDE.md       # Claude 지시문 원본
   agents/         # Claude용 Markdown agent 원본
   skills/         # 두 도구에 공유할 skill 디렉터리
-scripts/
-  templates/sources/ # `npm run init`이 사용하는 내부 기본 구성
-  init-sources.mjs
-  sync-global-ai.mjs
-sync.config.json
+scripts/             # 스크립트 및 시스템 파일
+sync.config.json      # 동기화 설정 파일
 ```
 
-`sources/`는 사용자의 개인 원본이며 공개 저장소에서는 Git ignore 처리합니다. `scripts/templates/`는 `npm run init`을 위한 내부 기본 구성으로, 직접 수정하는 대상이 아닙니다. 항상 생성된 `sources/`를 수정하세요.
+`sources/`는 사용자의 개인 원본입니다. 설정은 항상 이 디렉터리에서 수정하세요.
 
 | 원본 | Claude | Codex |
 | --- | --- | --- |
@@ -59,26 +56,24 @@ sync.config.json
 
 <br>
 
-## 공개 도구 업데이트와 개인 원본 관리
+## 공개 도구 업데이트
 
-공개 `ai-config-sync`는 도구의 기준 저장소로 두고, 개인 설정을 포함한 `ai-workbench`는 별도 개인 원격 저장소로 관리할 수 있습니다. 먼저 개인 저장소를 clone해서 시작하거나, 현재 `origin`이 개인 비공개 원격인지 확인합니다.
-
-```sh
-git remote -v
-git remote set-url origin <private-ai-workbench-url> # origin이 공개 저장소를 가리키는 경우
-```
-
-`npm run init`이 스테이징한 개인 `sources/`는 이후 `origin`으로 push되므로, 위 확인을 먼저 마친 뒤 공개 저장소를 `upstream`으로 추가합니다.
+개인 설정은 별도의 개인 원격 저장소로 관리하고, 공개 `ai-config-sync`는 `upstream`으로 연결합니다. 한 번만 설정하세요.
 
 ```sh
 git remote add upstream https://github.com/infreeJ/ai-config-sync.git
+```
+
+이후 공개 도구가 업데이트되면 다음을 실행합니다.
+
+```sh
 git fetch upstream
 git merge upstream/main
 ```
 
-개인 `sources/`는 `npm run init`으로 강제 스테이징된 뒤 일반적인 `git add`, `git commit`, `git push` 흐름으로 개인 원격 저장소에 관리됩니다. 공개 저장소는 `sources/`를 추적하지 않으므로, 이후 `upstream/main` 병합은 도구 파일 업데이트와 개인 원본을 분리합니다.
+개인 `sources/`는 개인 원격 저장소에만 관리되므로, 이후 병합에서는 도구 업데이트와 개인 원본을 분리할 수 있습니다.
 
-기존에 공개 저장소의 `sources/`를 추적하던 개인 저장소를 처음 전환할 때는 upstream의 삭제 변경과 충돌할 수 있습니다. 이 경우 개인 `sources/` 파일을 보존하는 쪽으로 한 번 해결하고 커밋하세요.
+기존 방식으로 개인 저장소를 사용 중이었다면, 처음 병합할 때 `sources/` 충돌이 발생할 수 있습니다. 이 경우 개인 `sources/`를 보존하세요.
 
 <br>
 
