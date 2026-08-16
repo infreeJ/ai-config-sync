@@ -6,8 +6,16 @@
 
 ## 빠른 시작
 
-1. `sources/` 아래의 파일을 수정합니다.
-2. 동기화합니다.
+1. 개인 원본을 만듭니다.
+
+   ```sh
+   npm run init
+   ```
+
+   이 명령은 기본 구성을 `sources/`에 만들고, 개인 저장소에서 관리할 준비를 합니다.
+
+2. `sources/` 아래의 파일을 수정합니다.
+3. 동기화합니다.
 
    ```sh
    npm run sync
@@ -31,10 +39,11 @@ sources/
   CLAUDE.md       # Claude 지시문 원본
   agents/         # Claude용 Markdown agent 원본
   skills/         # 두 도구에 공유할 skill 디렉터리
-scripts/
-  sync-global-ai.mjs
-sync.config.json
+scripts/             # 스크립트 및 시스템 파일
+sync.config.json      # 동기화 설정 파일
 ```
+
+`sources/`는 사용자의 개인 원본입니다. 설정은 항상 이 디렉터리에서 수정하세요.
 
 | 원본 | Claude | Codex |
 | --- | --- | --- |
@@ -44,6 +53,27 @@ sync.config.json
 | `sources/agents/<name>.md` | Markdown agent | 변환된 TOML agent |
 
 동일한 이름의 skill 또는 agent는 갱신하지만, 이름이 다른 전역 항목은 보존합니다. Codex에 포함된 `.system` skill도 관리 대상이 아닙니다.
+
+<br>
+
+## 공개 도구 업데이트
+
+개인 설정은 별도의 개인 원격 저장소로 관리하고, 공개 `ai-config-sync`는 `upstream`으로 연결합니다. 한 번만 설정하세요.
+
+```sh
+git remote add upstream https://github.com/infreeJ/ai-config-sync.git
+```
+
+이후 공개 도구가 업데이트되면 다음을 실행합니다.
+
+```sh
+git fetch upstream
+git merge upstream/main
+```
+
+개인 `sources/`는 개인 원격 저장소에만 관리되므로, 이후 병합에서는 도구 업데이트와 개인 원본을 분리할 수 있습니다.
+
+기존 방식으로 개인 저장소를 사용 중이었다면, 처음 병합할 때 `sources/` 충돌이 발생할 수 있습니다. 이 경우 개인 `sources/`를 보존하세요.
 
 <br>
 

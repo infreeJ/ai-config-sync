@@ -620,6 +620,10 @@ async function confirmSync() {
 }
 
 async function main() {
+  if (!existsSync(SOURCE_ROOT) || !statSync(SOURCE_ROOT).isDirectory()) {
+    throw new Error(`Source directory is missing: ${SOURCE_ROOT}. Run: npm run init`);
+  }
+
   if (DRY_RUN_REQUESTED) {
     runSync(true);
     return;

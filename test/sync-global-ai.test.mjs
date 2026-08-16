@@ -17,26 +17,54 @@ import { fileURLToPath } from 'node:url';
 
 const REPOSITORY_ROOT = join(fileURLToPath(new URL('..', import.meta.url)));
 const CLI_PATH = join('scripts', 'sync-global-ai.mjs');
+const INIT_CLI_PATH = join('scripts', 'init-sources.mjs');
 const BEGIN_MARKER = '<!-- ai-config-sync:begin instruction -->';
 const END_MARKER = '<!-- ai-config-sync:end instruction -->';
 
-function createTestEnvironment() {
+function createTestEnvironment({ initializeSources = true } = {}) {
   const temporaryRoot = mkdtempSync(join(tmpdir(), 'ai-config-sync-test-'));
   const repository = join(temporaryRoot, 'repository');
   const home = join(temporaryRoot, 'home');
   cpSync(REPOSITORY_ROOT, repository, {
     recursive: true,
-    filter: (source) => !['.git', 'node_modules'].includes(basename(source)),
+    filter: (source) =>
+      source !== join(REPOSITORY_ROOT, 'sources') && !['.git', 'node_modules'].includes(basename(source)),
   });
   mkdirSync(home);
+  execFileSync('git', ['init', '--quiet'], { cwd: repository });
 
-  return {
+  const environment = {
     repository,
     home,
     cleanup() {
       rmSync(temporaryRoot, { recursive: true, force: true });
     },
   };
+
+  if (initializeSources) {
+    const result = runInit(environment);
+    if (result.status !== 0) throw new Error(result.output);
+  }
+
+  return environment;
+}
+
+function runInit({ repository }) {
+  try {
+    return {
+      status: 0,
+      output: execFileSync(process.execPath, [INIT_CLI_PATH], {
+        cwd: repository,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    };
+  } catch (error) {
+    return {
+      status: error.status ?? 1,
+      output: `${error.stdout || ''}${error.stderr || ''}`,
+    };
+  }
 }
 
 function runSync({ repository, home }, arguments_ = ['--yes']) {
@@ -65,6 +93,76 @@ function runSync({ repository, home }, arguments_ = ['--yes']) {
 function markerCount(content, marker) {
   return content.split(/\r?\n/).filter((line) => line === marker).length;
 }
+
+test('init creates sources from the template and stages them despite .gitignore', () => {
+  const environment = createTestEnvironment({ initializeSources: false });
+  try {
+    const result = runInit(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /Created sources\/ from the bundled template/);
+    assert.match(result.output, /Staged sources\/ for Git tracking/);
+    assert.equal(
+      readFileSync(join(environment.repository, 'sources', 'AGENTS.md'), 'utf8'),
+      readFileSync(join(environment.repository, 'scripts', 'templates', 'sources', 'AGENTS.md'), 'utf8'),
+    );
+    assert.equal(
+      readFileSync(join(environment.repository, 'sources', 'CLAUDE.md'), 'utf8'),
+      readFileSync(join(environment.repository, 'scripts', 'templates', 'sources', 'CLAUDE.md'), 'utf8'),
+    );
+    assert.doesNotThrow(() => {
+      execFileSync('git', ['check-ignore', '--no-index', '--quiet', '--', 'sources/AGENTS.md'], {
+        cwd: environment.repository,
+      });
+    });
+
+    const stagedFiles = execFileSync('git', ['diff', '--cached', '--name-only'], {
+      cwd: environment.repository,
+      encoding: 'utf8',
+    });
+    assert.match(stagedFiles, /^sources\/AGENTS\.md$/m);
+    assert.match(stagedFiles, /^sources\/CLAUDE\.md$/m);
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('init preserves an existing sources directory and stages its files', () => {
+  const environment = createTestEnvironment({ initializeSources: false });
+  try {
+    const customInstruction = '# Private instruction\n';
+    mkdirSync(join(environment.repository, 'sources'));
+    writeFileSync(join(environment.repository, 'sources', 'AGENTS.md'), customInstruction);
+
+    const result = runInit(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /sources\/ already exists; preserved existing files/);
+    assert.equal(readFileSync(join(environment.repository, 'sources', 'AGENTS.md'), 'utf8'), customInstruction);
+    const stagedFiles = execFileSync('git', ['diff', '--cached', '--name-only'], {
+      cwd: environment.repository,
+      encoding: 'utf8',
+    });
+    assert.match(stagedFiles, /^sources\/AGENTS\.md$/m);
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('sync requires sources created by init before it touches global paths', () => {
+  const environment = createTestEnvironment({ initializeSources: false });
+  try {
+    const result = runSync(environment);
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /Source directory is missing/);
+    assert.match(result.output, /npm run init/);
+    assert.equal(existsSync(join(environment.home, '.codex')), false);
+    assert.equal(existsSync(join(environment.home, '.claude')), false);
+  } finally {
+    environment.cleanup();
+  }
+});
 
 test('append mode preserves local instructions and creates then updates managed blocks', () => {
   const environment = createTestEnvironment();
