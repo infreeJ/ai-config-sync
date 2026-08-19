@@ -220,13 +220,14 @@ test('off mode does not modify or create global instruction files', () => {
   }
 });
 
-test('syncs nested skills and Markdown agents while preserving unrelated global entries idempotently', () => {
+test('syncs nested skills to .agents while preserving legacy Codex skills and agents idempotently', () => {
   const environment = createTestEnvironment();
   try {
     const sourceSkill = join(environment.repository, 'sources', 'skills', 'nested-skill');
     const sourceAgent = join(environment.repository, 'sources', 'agents', 'review-agent.md');
     const claudeSkill = join(environment.home, '.claude', 'skills', 'nested-skill');
-    const codexSkill = join(environment.home, '.codex', 'skills', 'nested-skill');
+    const codexSkill = join(environment.home, '.agents', 'skills', 'nested-skill');
+    const legacyCodexSkill = join(environment.home, '.codex', 'skills', 'nested-skill');
     const claudeAgent = join(environment.home, '.claude', 'agents', 'review-agent.md');
     const codexAgent = join(environment.home, '.codex', 'agents', 'review-agent.toml');
     const agentMarkdown = [
@@ -245,6 +246,7 @@ test('syncs nested skills and Markdown agents while preserving unrelated global 
     writeSyncConfig(environment.repository, { instructionsMode: 'off' });
     mkdirSync(join(sourceSkill, 'references'), { recursive: true });
     mkdirSync(join(environment.home, '.claude', 'skills', 'preserved-skill'), { recursive: true });
+    mkdirSync(legacyCodexSkill, { recursive: true });
     mkdirSync(join(environment.home, '.codex', 'skills', 'preserved-skill'), { recursive: true });
     mkdirSync(join(environment.home, '.claude', 'agents'), { recursive: true });
     mkdirSync(join(environment.home, '.codex', 'agents'), { recursive: true });
@@ -252,6 +254,7 @@ test('syncs nested skills and Markdown agents while preserving unrelated global 
     writeFileSync(join(sourceSkill, 'SKILL.md'), '# Nested skill\n');
     writeFileSync(join(sourceSkill, 'references', 'guide.md'), 'Nested reference\n');
     writeFileSync(join(environment.home, '.claude', 'skills', 'preserved-skill', 'SKILL.md'), 'Claude local skill\n');
+    writeFileSync(join(legacyCodexSkill, 'SKILL.md'), 'Legacy Codex nested skill\n');
     writeFileSync(join(environment.home, '.codex', 'skills', 'preserved-skill', 'SKILL.md'), 'Codex local skill\n');
     writeFileSync(sourceAgent, agentMarkdown);
     writeFileSync(join(environment.home, '.claude', 'agents', 'review-agent.toml'), 'stale Claude variant\n');
@@ -266,6 +269,7 @@ test('syncs nested skills and Markdown agents while preserving unrelated global 
     assert.equal(readFileSync(join(claudeSkill, 'references', 'guide.md'), 'utf8'), 'Nested reference\n');
     assert.equal(readFileSync(join(codexSkill, 'SKILL.md'), 'utf8'), '# Nested skill\n');
     assert.equal(readFileSync(join(codexSkill, 'references', 'guide.md'), 'utf8'), 'Nested reference\n');
+    assert.equal(readFileSync(join(legacyCodexSkill, 'SKILL.md'), 'utf8'), 'Legacy Codex nested skill\n');
     assert.equal(
       readFileSync(join(environment.home, '.claude', 'skills', 'preserved-skill', 'SKILL.md'), 'utf8'),
       'Claude local skill\n',
