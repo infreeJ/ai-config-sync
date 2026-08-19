@@ -176,6 +176,7 @@ test('append mode preserves local instructions and creates then updates managed 
 
     const firstRun = runSync(environment);
     assert.equal(firstRun.status, 0, firstRun.output);
+    assert.doesNotMatch(firstRun.output, /Target roots/);
 
     const initialCodexContent = readFileSync(codexInstructions, 'utf8');
     const initialClaudeContent = readFileSync(claudeInstructions, 'utf8');
@@ -202,6 +203,10 @@ test('append mode preserves local instructions and creates then updates managed 
 
     const secondRun = runSync(environment);
     assert.equal(secondRun.status, 0, secondRun.output);
+    assert.match(secondRun.output, /Instructions\r?\n/);
+    assert.match(secondRun.output, /update - AGENTS\.md/);
+    assert.doesNotMatch(secondRun.output, /overwrite/);
+    assert.doesNotMatch(secondRun.output, new RegExp(escapeRegExp(environment.home)));
 
     const updatedCodexContent = readFileSync(codexInstructions, 'utf8');
     const updatedClaudeContent = readFileSync(claudeInstructions, 'utf8');
@@ -257,6 +262,19 @@ test('--dry-run does not create or modify isolated global paths', () => {
     assert.match(result.output, /dry-run plan/);
     assert.equal(readFileSync(codexInstructions, 'utf8'), codexContent);
     assert.equal(readFileSync(claudeInstructions, 'utf8'), claudeContent);
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('summary excludes hidden target root setup', () => {
+  const environment = createTestEnvironment();
+  try {
+    const result = runSync(environment, ['--dry-run']);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /create: 2/);
+    assert.doesNotMatch(result.output, /Target roots/);
   } finally {
     environment.cleanup();
   }
@@ -363,6 +381,8 @@ test('syncs nested skills to .agents while preserving legacy Codex skills and ag
     const firstRun = runSync(environment);
 
     assert.equal(firstRun.status, 0, firstRun.output);
+    assert.equal((firstRun.output.match(/create - nested-skill/g) ?? []).length, 2);
+    assert.equal((firstRun.output.match(/create - review-agent\.md/g) ?? []).length, 2);
     assert.equal(readFileSync(join(claudeSkill, 'SKILL.md'), 'utf8'), '# Nested skill\n');
     assert.equal(readFileSync(join(claudeSkill, 'references', 'guide.md'), 'utf8'), 'Nested reference\n');
     assert.equal(readFileSync(join(codexSkill, 'SKILL.md'), 'utf8'), '# Nested skill\n');
@@ -392,6 +412,7 @@ test('syncs nested skills to .agents while preserving legacy Codex skills and ag
 
     assert.equal(secondRun.status, 0, secondRun.output);
     assert.match(secondRun.output, /\(no changes\)/);
+    assert.doesNotMatch(secondRun.output, /Instructions/);
     assert.match(secondRun.output, /No changes to apply; sync cancelled without writing\./);
     assert.deepEqual(snapshotDirectory(environment.home), homeAfterFirstRun);
   } finally {
