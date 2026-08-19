@@ -176,7 +176,9 @@ function instructionSpecsForMode(mode) {
 const instructionSpecs = instructionSpecsForMode(instructionMode);
 
 function recordOperation(section, action, label, destination) {
-  stats[action] += 1;
+  if (section !== 'targetRoots') {
+    stats[action] += 1;
+  }
   operations[section].push({ action, label, destination });
 }
 
@@ -378,7 +380,7 @@ function syncInstructions() {
     ensureTargetRoot(spec.target);
     writeFile(spec.destination, content, spec.target.root, {
       section: 'instructions',
-      label: join('sources', spec.name),
+      label: spec.name,
     });
   }
   return count;
@@ -501,15 +503,15 @@ function syncAgents() {
 }
 
 function operationLine(operation) {
-  const target = operation.destination ? `${operation.label} -> ${operation.destination}` : operation.label;
-  const action = operation.action.padEnd(10);
-  const actionColor = operation.action === 'create' ? 'green' : 'yellow';
-  return `  ${color(action, 'bold', actionColor)} ${target}`;
+  const action = operation.action === 'overwrite' ? 'update' : operation.action;
+  const actionColor = action === 'create' ? 'green' : 'yellow';
+  return `  ${color(action, 'bold', actionColor)} - ${operation.label}`;
 }
 
 function appendOperationSection(lines, title, sectionOperations) {
   if (sectionOperations.length === 0) return;
-  lines.push('', color(title, 'bold', 'cyan'), ...sectionOperations.map(operationLine));
+  const displayedLines = [...new Set(sectionOperations.map(operationLine))];
+  lines.push('', color(title, 'bold', 'cyan'), ...displayedLines);
 }
 
 function hasChangingOperations() {
@@ -556,13 +558,6 @@ function printReport(result) {
   const reportTitle = DRY_RUN ? 'dry-run plan' : 'sync result';
   const reportColor = DRY_RUN ? 'yellow' : 'green';
   const lines = [color(`[sync-global-ai] ${reportTitle}`, 'bold', reportColor), `mode: ${instructionMode}`];
-  if (instructionSpecs.length === 0) {
-    lines.push('instruction targets: none');
-  } else {
-    lines.push('instruction targets:', ...instructionSpecs.map((spec) => `  ${spec.destination}`));
-  }
-
-  appendOperationSection(lines, 'Target roots', operations.targetRoots);
   appendOperationSection(lines, 'Instructions', operations.instructions);
   appendOperationSection(lines, 'Skills', operations.skills);
   appendOperationSection(lines, 'Agents', operations.agents);
@@ -584,7 +579,7 @@ function printReport(result) {
     '',
     color('Summary', 'bold', 'cyan'),
     `  ${color('create:', 'green')} ${stats.create}`,
-    `  ${color('overwrite:', 'yellow')} ${stats.overwrite}`,
+    `  ${color('update:', 'yellow')} ${stats.overwrite}`,
     `  ${color('unchanged:', 'dim')} ${stats.unchanged}`,
     `  ${color('skipped:', 'yellow')} ${stats.skipped}`,
     `  scanned: ${result.instructions} instruction file(s), ${result.skills} skill(s), ${result.agents} agent(s)`,
