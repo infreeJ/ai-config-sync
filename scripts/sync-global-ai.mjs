@@ -23,6 +23,20 @@ const CONFIG_FILE = join(ROOT, 'sync.config.json');
 const DRY_RUN_REQUESTED = process.argv.includes('--dry-run');
 const YES_REQUESTED = process.argv.includes('--yes');
 const PRE_COMMIT_REQUESTED = process.argv.includes('--pre-commit');
+const USE_COLOR = output.isTTY && !process.env.NO_COLOR;
+const ANSI = {
+  reset: '\x1b[0m',
+  bold: '\x1b[1m',
+  dim: '\x1b[2m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  cyan: '\x1b[36m',
+};
+
+function color(text, ...styles) {
+  if (!USE_COLOR) return text;
+  return `${styles.map((style) => ANSI[style]).join('')}${text}${ANSI.reset}`;
+}
 
 const DEFAULT_CONFIG = {
   instructionsMode: 'append',
@@ -488,12 +502,14 @@ function syncAgents() {
 
 function operationLine(operation) {
   const target = operation.destination ? `${operation.label} -> ${operation.destination}` : operation.label;
-  return `  ${operation.action.padEnd(10)} ${target}`;
+  const action = operation.action.padEnd(10);
+  const actionColor = operation.action === 'create' ? 'green' : 'yellow';
+  return `  ${color(action, 'bold', actionColor)} ${target}`;
 }
 
 function appendOperationSection(lines, title, sectionOperations) {
   if (sectionOperations.length === 0) return;
-  lines.push('', title, ...sectionOperations.map(operationLine));
+  lines.push('', color(title, 'bold', 'cyan'), ...sectionOperations.map(operationLine));
 }
 
 function hasChangingOperations() {
@@ -537,7 +553,9 @@ function reportNotices() {
 }
 
 function printReport(result) {
-  const lines = [`[sync-global-ai] ${DRY_RUN ? 'dry-run plan' : 'sync result'}`, `mode: ${instructionMode}`];
+  const reportTitle = DRY_RUN ? 'dry-run plan' : 'sync result';
+  const reportColor = DRY_RUN ? 'yellow' : 'green';
+  const lines = [color(`[sync-global-ai] ${reportTitle}`, 'bold', reportColor), `mode: ${instructionMode}`];
   if (instructionSpecs.length === 0) {
     lines.push('instruction targets: none');
   } else {
@@ -550,25 +568,25 @@ function printReport(result) {
   appendOperationSection(lines, 'Agents', operations.agents);
 
   if (!hasChangingOperations()) {
-    lines.push('', '(no changes)');
+    lines.push('', color('(no changes)', 'dim'));
   }
 
   if (operations.skipped.length > 0) {
-    lines.push('', 'Skipped', ...operations.skipped.map((message) => `  ${message}`));
+    lines.push('', color('Skipped', 'bold', 'yellow'), ...operations.skipped.map((message) => `  ${message}`));
   }
 
   const notices = reportNotices();
   if (notices.length > 0) {
-    lines.push('', 'Notices', ...notices.map((message) => `  ${message}`));
+    lines.push('', color('Notices', 'bold', 'yellow'), ...notices.map((message) => `  ${message}`));
   }
 
   lines.push(
     '',
-    'Summary',
-    `  create: ${stats.create}`,
-    `  overwrite: ${stats.overwrite}`,
-    `  unchanged: ${stats.unchanged}`,
-    `  skipped: ${stats.skipped}`,
+    color('Summary', 'bold', 'cyan'),
+    `  ${color('create:', 'green')} ${stats.create}`,
+    `  ${color('overwrite:', 'yellow')} ${stats.overwrite}`,
+    `  ${color('unchanged:', 'dim')} ${stats.unchanged}`,
+    `  ${color('skipped:', 'yellow')} ${stats.skipped}`,
     `  scanned: ${result.instructions} instruction file(s), ${result.skills} skill(s), ${result.agents} agent(s)`,
     '  preserved unrelated global entries: yes',
   );
@@ -605,6 +623,10 @@ async function confirmSync() {
 }
 
 async function main() {
+  if (!existsSync(SOURCE_ROOT) || !statSync(SOURCE_ROOT).isDirectory()) {
+    throw new Error(`Source directory is missing: ${SOURCE_ROOT}. Run: npm run init`);
+  }
+
   if (DRY_RUN_REQUESTED) {
     runSync(true);
     return;
