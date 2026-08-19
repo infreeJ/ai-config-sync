@@ -21,7 +21,7 @@ const INIT_CLI_PATH = join('scripts', 'init-sources.mjs');
 const BEGIN_MARKER = '<!-- ai-config-sync:begin instruction -->';
 const END_MARKER = '<!-- ai-config-sync:end instruction -->';
 
-function createTestEnvironment({ initializeSources = true } = {}) {
+function createTestEnvironment({ initializeGit = true, initializeSources = true } = {}) {
   const temporaryRoot = mkdtempSync(join(tmpdir(), 'ai-config-sync-test-'));
   const repository = join(temporaryRoot, 'repository');
   const home = join(temporaryRoot, 'home');
@@ -31,7 +31,9 @@ function createTestEnvironment({ initializeSources = true } = {}) {
       source !== join(REPOSITORY_ROOT, 'sources') && !['.git', 'node_modules'].includes(basename(source)),
   });
   mkdirSync(home);
-  execFileSync('git', ['init', '--quiet'], { cwd: repository });
+  if (initializeGit) {
+    execFileSync('git', ['init', '--quiet'], { cwd: repository });
+  }
 
   const environment = {
     repository,
@@ -94,14 +96,13 @@ function markerCount(content, marker) {
   return content.split(/\r?\n/).filter((line) => line === marker).length;
 }
 
-test('init creates sources from the template and stages them despite .gitignore', () => {
+test('init creates sources from the template without staging them', () => {
   const environment = createTestEnvironment({ initializeSources: false });
   try {
     const result = runInit(environment);
 
     assert.equal(result.status, 0, result.output);
     assert.match(result.output, /Created sources\/ from the bundled template/);
-    assert.match(result.output, /Staged sources\/ for Git tracking/);
     assert.equal(
       readFileSync(join(environment.repository, 'sources', 'AGENTS.md'), 'utf8'),
       readFileSync(join(environment.repository, 'scripts', 'templates', 'sources', 'AGENTS.md'), 'utf8'),
@@ -110,24 +111,41 @@ test('init creates sources from the template and stages them despite .gitignore'
       readFileSync(join(environment.repository, 'sources', 'CLAUDE.md'), 'utf8'),
       readFileSync(join(environment.repository, 'scripts', 'templates', 'sources', 'CLAUDE.md'), 'utf8'),
     );
-    assert.doesNotThrow(() => {
+    assert.throws(() => {
       execFileSync('git', ['check-ignore', '--no-index', '--quiet', '--', 'sources/AGENTS.md'], {
         cwd: environment.repository,
       });
     });
-
-    const stagedFiles = execFileSync('git', ['diff', '--cached', '--name-only'], {
-      cwd: environment.repository,
-      encoding: 'utf8',
-    });
-    assert.match(stagedFiles, /^sources\/AGENTS\.md$/m);
-    assert.match(stagedFiles, /^sources\/CLAUDE\.md$/m);
+    assert.equal(
+      execFileSync('git', ['diff', '--cached', '--name-only'], {
+        cwd: environment.repository,
+        encoding: 'utf8',
+      }),
+      '',
+    );
   } finally {
     environment.cleanup();
   }
 });
 
-test('init preserves an existing sources directory and stages its files', () => {
+test('a new skill under sources is detected by normal Git status', () => {
+  const environment = createTestEnvironment();
+  try {
+    const skillDirectory = join(environment.repository, 'sources', 'skills', 'example');
+    mkdirSync(skillDirectory, { recursive: true });
+    writeFileSync(join(skillDirectory, 'SKILL.md'), '# Example skill\n');
+
+    const status = execFileSync('git', ['status', '--short', '--untracked-files=all'], {
+      cwd: environment.repository,
+      encoding: 'utf8',
+    });
+    assert.match(status, /^\?\? sources\/skills\/example\/SKILL\.md$/m);
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('init preserves an existing sources directory without staging its files', () => {
   const environment = createTestEnvironment({ initializeSources: false });
   try {
     const customInstruction = '# Private instruction\n';
@@ -143,7 +161,19 @@ test('init preserves an existing sources directory and stages its files', () => 
       cwd: environment.repository,
       encoding: 'utf8',
     });
-    assert.match(stagedFiles, /^sources\/AGENTS\.md$/m);
+    assert.equal(stagedFiles, '');
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('init creates sources outside a Git work tree', () => {
+  const environment = createTestEnvironment({ initializeGit: false, initializeSources: false });
+  try {
+    const result = runInit(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.equal(existsSync(join(environment.repository, 'sources', 'AGENTS.md')), true);
   } finally {
     environment.cleanup();
   }
