@@ -55,8 +55,11 @@ const TARGETS = {
     root: join(home, '.codex'),
     agentsMd: join(home, '.codex', 'AGENTS.md'),
     agentsSyncMd: join(home, '.codex', 'AGENTS-sync.md'),
-    skills: join(home, '.codex', 'skills'),
     agents: join(home, '.codex', 'agents'),
+  },
+  codexSkills: {
+    root: join(home, '.agents'),
+    skills: join(home, '.agents', 'skills'),
   },
 };
 
@@ -425,7 +428,7 @@ function syncSkills() {
       continue;
     }
 
-    for (const target of Object.values(TARGETS)) {
+    for (const target of [TARGETS.claude, TARGETS.codexSkills]) {
       ensureTargetRoot(target);
       replaceSkill(entry.name, entry.path, target);
     }
