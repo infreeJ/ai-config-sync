@@ -1,6 +1,6 @@
 # ai-config-sync
 
-`ai-config-sync`는 Claude와 Codex에서 함께 쓰는 전역 지시문, 스킬, 에이전트를 한 저장소에서 관리하고 필요할 때 동기화하는 도구입니다. 전역 디렉터리(`~/.claude`, `~/.codex`)를 직접 수정하지 않고 `sources/`를 원본으로 사용합니다.
+`ai-config-sync`는 Claude와 Codex에서 함께 쓰는 전역 지시문, 스킬, 에이전트를 한 저장소에서 관리하고 필요할 때 동기화하는 도구입니다. 전역 디렉터리(`~/.claude`, `~/.codex`, `~/.agents`)를 직접 수정하지 않고 `sources/`를 원본으로 사용합니다.
 
 <br>
 
@@ -49,8 +49,8 @@ sync.config.json      # 동기화 설정 파일
 | --- | --- | --- |
 | `sources/CLAUDE.md` | 지시문 파일 | — |
 | `sources/AGENTS.md` | — | 지시문 파일 |
-| `sources/skills/<name>/` | skill 디렉터리 | skill 디렉터리 |
-| `sources/agents/<name>.md` | Markdown agent | 변환된 TOML agent |
+| `sources/skills/<name>/` | `~/.claude/skills/<name>/` | `~/.agents/skills/<name>/` |
+| `sources/agents/<name>.md` | `~/.claude/agents/<name>.md` | `~/.codex/agents/<name>.toml` |
 
 동일한 이름의 skill 또는 agent는 갱신하지만, 이름이 다른 전역 항목은 보존합니다. Codex에 포함된 `.system` skill도 관리 대상이 아닙니다.
 
