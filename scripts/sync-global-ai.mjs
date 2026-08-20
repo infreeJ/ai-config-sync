@@ -20,6 +20,7 @@ const SOURCE_ROOT = join(ROOT, 'sources');
 const SOURCE_SKILLS = join(SOURCE_ROOT, 'skills');
 const SOURCE_AGENTS = join(SOURCE_ROOT, 'agents');
 const CONFIG_FILE = join(ROOT, 'sync.config.json');
+const BACKUP_ROOT = join(ROOT, 'backup');
 const DRY_RUN_REQUESTED = process.argv.includes('--dry-run');
 const YES_REQUESTED = process.argv.includes('--yes');
 const PRE_COMMIT_REQUESTED = process.argv.includes('--pre-commit');
@@ -41,6 +42,8 @@ function color(text, ...styles) {
 const DEFAULT_CONFIG = {
   instructionsMode: 'append',
   preCommitSync: 'off',
+  backup: 'on',
+  backupRetentionCount: 10,
   codexAgentDefaults: {
     model: 'gpt-5',
     reasoningEffort: 'high',
@@ -77,12 +80,23 @@ const TARGETS = {
   },
 };
 
+const BACKUP_SPECS = [
+  { source: TARGETS.codex.agentsMd, destination: join('.codex', 'AGENTS.md') },
+  { source: TARGETS.claude.claudeMd, destination: join('.claude', 'CLAUDE.md') },
+  { source: TARGETS.claude.skills, destination: join('.claude', 'skills') },
+  { source: TARGETS.codexSkills.skills, destination: join('.agents', 'skills') },
+  { source: TARGETS.claude.agents, destination: join('.claude', 'agents') },
+  { source: TARGETS.codex.agents, destination: join('.codex', 'agents') },
+];
+
 const HEADER = 'AUTO-GENERATED from ai-config-sync. Edit the source under sources/.';
 const MANAGED_INSTRUCTION_BEGIN = '<!-- ai-config-sync:begin instruction -->';
 const MANAGED_INSTRUCTION_END = '<!-- ai-config-sync:end instruction -->';
 const MANAGED_INSTRUCTION_SOURCE = `<!-- AUTO-GENERATED from ${SOURCE_ROOT} -->`;
 const INSTRUCTION_MODES = new Set(['append', 'off', 'sidecar', 'managed']);
 const PRE_COMMIT_SYNC_MODES = new Set(['on', 'off']);
+const BACKUP_MODES = new Set(['on', 'off']);
+const BACKUP_DIRECTORY_NAME = /^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)(?:-(\d+))?$/;
 let DRY_RUN = true;
 let stats;
 let operations;
@@ -140,8 +154,16 @@ if (!INSTRUCTION_MODES.has(config.instructionsMode)) {
 if (!PRE_COMMIT_SYNC_MODES.has(config.preCommitSync)) {
   throw new Error(`Invalid preCommitSync "${config.preCommitSync}". Expected one of: on, off.`);
 }
+if (!BACKUP_MODES.has(config.backup)) {
+  throw new Error(`Invalid backup "${config.backup}". Expected one of: on, off.`);
+}
+if (!Number.isInteger(config.backupRetentionCount) || config.backupRetentionCount < 1) {
+  throw new Error('Invalid backupRetentionCount. Expected an integer greater than or equal to 1.');
+}
 const instructionMode = config.instructionsMode;
 const preCommitSync = config.preCommitSync;
+const backup = config.backup;
+const backupRetentionCount = config.backupRetentionCount;
 
 function instructionSpecsForMode(mode) {
   if (mode === 'off') return [];
@@ -276,6 +298,84 @@ function copyDirectory(source, destination, targetRoot) {
   if (DRY_RUN) return;
   mkdirSync(dirname(destination), { recursive: true });
   cpSync(source, destination, { recursive: true });
+}
+
+function createBackupDirectory() {
+  ensureInside(BACKUP_ROOT, ROOT);
+  mkdirSync(BACKUP_ROOT, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  let suffix = 0;
+
+  while (true) {
+    const name = suffix === 0 ? timestamp : `${timestamp}-${suffix}`;
+    const directory = join(BACKUP_ROOT, name);
+    ensureInside(directory, BACKUP_ROOT);
+    try {
+      mkdirSync(directory);
+      return { directory, relativePath: `backup/${name}` };
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+    }
+    suffix += 1;
+  }
+}
+
+function listManagedBackupDirectories() {
+  ensureInside(BACKUP_ROOT, ROOT);
+  if (!existsSync(BACKUP_ROOT)) return [];
+
+  return readdirSync(BACKUP_ROOT, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && BACKUP_DIRECTORY_NAME.test(entry.name))
+    .map((entry) => ({
+      name: entry.name,
+      directory: join(BACKUP_ROOT, entry.name),
+      relativePath: `backup/${entry.name}`,
+    }))
+    .sort((left, right) => compareBackupDirectoryNames(left.name, right.name));
+}
+
+function compareBackupDirectoryNames(leftName, rightName) {
+  const [, leftTimestamp, leftSuffix = '0'] = leftName.match(BACKUP_DIRECTORY_NAME);
+  const [, rightTimestamp, rightSuffix = '0'] = rightName.match(BACKUP_DIRECTORY_NAME);
+
+  if (leftTimestamp < rightTimestamp) return -1;
+  if (leftTimestamp > rightTimestamp) return 1;
+
+  const leftSequence = BigInt(leftSuffix);
+  const rightSequence = BigInt(rightSuffix);
+  if (leftSequence < rightSequence) return -1;
+  if (leftSequence > rightSequence) return 1;
+  return 0;
+}
+
+function pruneBackups() {
+  const managedBackups = listManagedBackupDirectories();
+  const expiredBackups = managedBackups.slice(0, Math.max(0, managedBackups.length - backupRetentionCount));
+
+  for (const expiredBackup of expiredBackups) {
+    ensureInside(expiredBackup.directory, BACKUP_ROOT);
+    rmSync(expiredBackup.directory, { recursive: true, force: true });
+  }
+
+  return expiredBackups.map((backupDirectory) => backupDirectory.relativePath);
+}
+
+function backupGlobalSettings() {
+  const backupDirectory = createBackupDirectory();
+
+  for (const spec of BACKUP_SPECS) {
+    if (!existsSync(spec.source)) continue;
+
+    const destination = join(backupDirectory.directory, spec.destination);
+    ensureInside(destination, backupDirectory.directory);
+    mkdirSync(dirname(destination), { recursive: true });
+    cpSync(spec.source, destination, { recursive: true });
+  }
+
+  return {
+    backupPath: backupDirectory.relativePath,
+    deletedBackupPaths: pruneBackups(),
+  };
 }
 
 function writeFile(destination, content, targetRoot, operation) {
@@ -558,6 +658,12 @@ function printReport(result) {
   const reportTitle = DRY_RUN ? 'dry-run plan' : 'sync result';
   const reportColor = DRY_RUN ? 'yellow' : 'green';
   const lines = [color(`[sync-global-ai] ${reportTitle}`, 'bold', reportColor), `mode: ${instructionMode}`];
+  if (result.backupPath) {
+    lines.push(`backup: ${result.backupPath}`);
+  }
+  for (const deletedBackupPath of result.deletedBackupPaths || []) {
+    lines.push(`deleted backup: ${deletedBackupPath}`);
+  }
   appendOperationSection(lines, 'Instructions', operations.instructions);
   appendOperationSection(lines, 'Skills', operations.skills);
   appendOperationSection(lines, 'Agents', operations.agents);
@@ -589,12 +695,13 @@ function printReport(result) {
   console.log(lines.join('\n'));
 }
 
-function runSync(dryRun) {
+function runSync(dryRun, backupResult = {}) {
   resetRunState(dryRun);
   const result = {
     instructions: syncInstructions(),
     skills: syncSkills(),
     agents: syncAgents(),
+    ...backupResult,
   };
   result.hasChanges = hasChangingOperations();
   printReport(result);
@@ -649,7 +756,8 @@ async function main() {
     return;
   }
 
-  runSync(false);
+  const backupResult = backup === 'on' ? backupGlobalSettings() : undefined;
+  runSync(false, backupResult);
 }
 
 await main();
