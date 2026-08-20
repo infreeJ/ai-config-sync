@@ -1,6 +1,7 @@
 {
   "instructionsMode": "append",
   "preCommitSync": "off",
+  "backup": "on",
   "codexAgentDefaults": {
     "model": "gpt-5.6-terra",
     "reasoningEffort": "high"
