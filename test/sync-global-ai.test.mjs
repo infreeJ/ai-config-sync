@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -292,6 +292,148 @@ test('--dry-run does not create or modify isolated global paths', () => {
     assert.match(result.output, /dry-run plan/);
     assert.equal(readFileSync(codexInstructions, 'utf8'), codexContent);
     assert.equal(readFileSync(claudeInstructions, 'utf8'), claudeContent);
+    assert.deepEqual(backupDirectories(environment.repository), []);
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('sync backs up every global instruction, skill, and agent before applying changes', () => {
+  const environment = createTestEnvironment();
+  try {
+    const codexInstructions = join(environment.home, '.codex', 'AGENTS.md');
+    const claudeInstructions = join(environment.home, '.claude', 'CLAUDE.md');
+    const claudeSkill = join(environment.home, '.claude', 'skills', 'local-claude-skill');
+    const codexSkill = join(environment.home, '.agents', 'skills', 'local-codex-skill');
+    const claudeAgent = join(environment.home, '.claude', 'agents', 'local-agent.md');
+    const codexAgent = join(environment.home, '.codex', 'agents', 'local-agent.toml');
+    const codexContent = '## Local Codex instructions\nPreserve this version.\n';
+    const claudeContent = '## Local Claude instructions\nPreserve this version.\n';
+
+    mkdirSync(join(claudeSkill, 'references'), { recursive: true });
+    mkdirSync(codexSkill, { recursive: true });
+    mkdirSync(dirname(claudeAgent), { recursive: true });
+    mkdirSync(dirname(codexAgent), { recursive: true });
+    writeFileSync(codexInstructions, codexContent);
+    writeFileSync(claudeInstructions, claudeContent);
+    writeFileSync(join(claudeSkill, 'SKILL.md'), '# Local Claude skill\n');
+    writeFileSync(join(claudeSkill, 'references', 'guide.md'), 'Claude skill reference\n');
+    writeFileSync(join(codexSkill, 'SKILL.md'), '# Local Codex skill\n');
+    writeFileSync(claudeAgent, 'Local Claude agent\n');
+    writeFileSync(codexAgent, 'Local Codex agent\n');
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    const backups = backupDirectories(environment.repository);
+    assert.equal(backups.length, 1);
+    assert.match(result.output, new RegExp(`backup: backup/${escapeRegExp(backups[0])}`));
+
+    const backup = join(environment.repository, 'backup', backups[0]);
+    assert.equal(readFileSync(join(backup, '.codex', 'AGENTS.md'), 'utf8'), codexContent);
+    assert.equal(readFileSync(join(backup, '.claude', 'CLAUDE.md'), 'utf8'), claudeContent);
+    assert.equal(readFileSync(join(backup, '.claude', 'skills', 'local-claude-skill', 'SKILL.md'), 'utf8'), '# Local Claude skill\n');
+    assert.equal(
+      readFileSync(join(backup, '.claude', 'skills', 'local-claude-skill', 'references', 'guide.md'), 'utf8'),
+      'Claude skill reference\n',
+    );
+    assert.equal(readFileSync(join(backup, '.agents', 'skills', 'local-codex-skill', 'SKILL.md'), 'utf8'), '# Local Codex skill\n');
+    assert.equal(readFileSync(join(backup, '.claude', 'agents', 'local-agent.md'), 'utf8'), 'Local Claude agent\n');
+    assert.equal(readFileSync(join(backup, '.codex', 'agents', 'local-agent.toml'), 'utf8'), 'Local Codex agent\n');
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('sync does not create a backup when there are no changes to apply', () => {
+  const environment = createTestEnvironment();
+  try {
+    const firstRun = runSync(environment);
+    assert.equal(firstRun.status, 0, firstRun.output);
+    const backupsBefore = backupDirectories(environment.repository);
+    assert.equal(backupsBefore.length, 1);
+
+    const secondRun = runSync(environment);
+
+    assert.equal(secondRun.status, 0, secondRun.output);
+    assert.match(secondRun.output, /No changes to apply; sync cancelled without writing\./);
+    assert.doesNotMatch(secondRun.output, /^backup:/m);
+    assert.deepEqual(backupDirectories(environment.repository), backupsBefore);
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('backup off skips backup creation while applying changes', () => {
+  const environment = createTestEnvironment();
+  try {
+    const codexInstructions = join(environment.home, '.codex', 'AGENTS.md');
+    const initialCodexContent = 'Local Codex instructions\n';
+    writeSyncConfig(environment.repository, { backup: 'off' });
+    mkdirSync(join(environment.home, '.codex'), { recursive: true });
+    writeFileSync(codexInstructions, initialCodexContent);
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.notEqual(readFileSync(codexInstructions, 'utf8'), initialCodexContent);
+    assert.match(readFileSync(codexInstructions, 'utf8'), new RegExp(escapeRegExp(BEGIN_MARKER)));
+    assert.doesNotMatch(result.output, /^backup:/m);
+    assert.deepEqual(backupDirectories(environment.repository), []);
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('each changed sync creates a distinct backup and preserves earlier backups', () => {
+  const environment = createTestEnvironment();
+  try {
+    const codexInstructions = join(environment.home, '.codex', 'AGENTS.md');
+    const initialCodexContent = '## Local Codex instructions\nFirst version.\n';
+    mkdirSync(dirname(codexInstructions), { recursive: true });
+    writeFileSync(codexInstructions, initialCodexContent);
+
+    const firstRun = runSync(environment);
+    assert.equal(firstRun.status, 0, firstRun.output);
+    const [firstBackup] = backupDirectories(environment.repository);
+    assert.ok(firstBackup);
+    const firstBackupPath = join(environment.repository, 'backup', firstBackup);
+    assert.equal(readFileSync(join(firstBackupPath, '.codex', 'AGENTS.md'), 'utf8'), initialCodexContent);
+    const codexAfterFirstSync = readFileSync(codexInstructions, 'utf8');
+
+    const sourceInstructions = join(environment.repository, 'sources', 'AGENTS.md');
+    writeFileSync(sourceInstructions, `${readFileSync(sourceInstructions, 'utf8')}\n## Updated source instructions\n`);
+
+    const secondRun = runSync(environment);
+    assert.equal(secondRun.status, 0, secondRun.output);
+    const backups = backupDirectories(environment.repository);
+    assert.equal(backups.length, 2);
+    assert.ok(backups.includes(firstBackup));
+    assert.equal(readFileSync(join(firstBackupPath, '.codex', 'AGENTS.md'), 'utf8'), initialCodexContent);
+    const secondBackup = backups.find((backup) => backup !== firstBackup);
+    assert.ok(secondBackup);
+    assert.equal(
+      readFileSync(join(environment.repository, 'backup', secondBackup, '.codex', 'AGENTS.md'), 'utf8'),
+      codexAfterFirstSync,
+    );
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('missing backup configuration defaults to creating a backup before changes', () => {
+  const environment = createTestEnvironment();
+  try {
+    const configPath = join(environment.repository, 'sync.config.json');
+    const config = JSON.parse(readFileSync(configPath, 'utf8'));
+    delete config.backup;
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.equal(backupDirectories(environment.repository).length, 1);
+    assert.match(result.output, /^backup: backup\//m);
   } finally {
     environment.cleanup();
   }
@@ -461,6 +603,11 @@ for (const invalidConfig of [
     value: 'invalid',
     error: /Invalid preCommitSync "invalid"/,
   },
+  {
+    name: 'backup',
+    value: 'invalid',
+    error: /Invalid backup "invalid"/,
+  },
 ]) {
   test(`invalid ${invalidConfig.name} fails before writing the isolated home directory`, () => {
     const environment = createTestEnvironment();
@@ -482,6 +629,7 @@ for (const invalidConfig of [
       assert.notEqual(result.status, 0);
       assert.match(result.output, invalidConfig.error);
       assert.deepEqual(snapshotDirectory(environment.home), homeBefore);
+      assert.deepEqual(backupDirectories(environment.repository), []);
     } finally {
       environment.cleanup();
     }
@@ -521,6 +669,15 @@ function snapshotDirectory(directory) {
 
   visit(directory);
   return entries;
+}
+
+function backupDirectories(repository) {
+  const backupRoot = join(repository, 'backup');
+  if (!existsSync(backupRoot)) return [];
+  return readdirSync(backupRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
 }
 
 function writeSyncConfig(repository, overrides) {
