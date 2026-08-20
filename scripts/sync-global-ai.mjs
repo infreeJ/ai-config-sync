@@ -43,6 +43,7 @@ const DEFAULT_CONFIG = {
   instructionsMode: 'append',
   preCommitSync: 'off',
   backup: 'on',
+  backupRetentionCount: 10,
   codexAgentDefaults: {
     model: 'gpt-5',
     reasoningEffort: 'high',
@@ -95,6 +96,7 @@ const MANAGED_INSTRUCTION_SOURCE = `<!-- AUTO-GENERATED from ${SOURCE_ROOT} -->`
 const INSTRUCTION_MODES = new Set(['append', 'off', 'sidecar', 'managed']);
 const PRE_COMMIT_SYNC_MODES = new Set(['on', 'off']);
 const BACKUP_MODES = new Set(['on', 'off']);
+const BACKUP_DIRECTORY_NAME = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(?:-\d+)?$/;
 let DRY_RUN = true;
 let stats;
 let operations;
@@ -155,9 +157,13 @@ if (!PRE_COMMIT_SYNC_MODES.has(config.preCommitSync)) {
 if (!BACKUP_MODES.has(config.backup)) {
   throw new Error(`Invalid backup "${config.backup}". Expected one of: on, off.`);
 }
+if (!Number.isInteger(config.backupRetentionCount) || config.backupRetentionCount < 1) {
+  throw new Error('Invalid backupRetentionCount. Expected an integer greater than or equal to 1.');
+}
 const instructionMode = config.instructionsMode;
 const preCommitSync = config.preCommitSync;
 const backup = config.backup;
+const backupRetentionCount = config.backupRetentionCount;
 
 function instructionSpecsForMode(mode) {
   if (mode === 'off') return [];
@@ -314,6 +320,36 @@ function createBackupDirectory() {
   }
 }
 
+function listManagedBackupDirectories() {
+  ensureInside(BACKUP_ROOT, ROOT);
+  if (!existsSync(BACKUP_ROOT)) return [];
+
+  return readdirSync(BACKUP_ROOT, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && BACKUP_DIRECTORY_NAME.test(entry.name))
+    .map((entry) => ({
+      name: entry.name,
+      directory: join(BACKUP_ROOT, entry.name),
+      relativePath: `backup/${entry.name}`,
+    }))
+    .sort((left, right) => {
+      if (left.name < right.name) return -1;
+      if (left.name > right.name) return 1;
+      return 0;
+    });
+}
+
+function pruneBackups() {
+  const managedBackups = listManagedBackupDirectories();
+  const expiredBackups = managedBackups.slice(0, Math.max(0, managedBackups.length - backupRetentionCount));
+
+  for (const expiredBackup of expiredBackups) {
+    ensureInside(expiredBackup.directory, BACKUP_ROOT);
+    rmSync(expiredBackup.directory, { recursive: true, force: true });
+  }
+
+  return expiredBackups.map((backupDirectory) => backupDirectory.relativePath);
+}
+
 function backupGlobalSettings() {
   const backupDirectory = createBackupDirectory();
 
@@ -326,7 +362,10 @@ function backupGlobalSettings() {
     cpSync(spec.source, destination, { recursive: true });
   }
 
-  return backupDirectory.relativePath;
+  return {
+    backupPath: backupDirectory.relativePath,
+    deletedBackupPaths: pruneBackups(),
+  };
 }
 
 function writeFile(destination, content, targetRoot, operation) {
@@ -612,6 +651,9 @@ function printReport(result) {
   if (result.backupPath) {
     lines.push(`backup: ${result.backupPath}`);
   }
+  for (const deletedBackupPath of result.deletedBackupPaths || []) {
+    lines.push(`deleted backup: ${deletedBackupPath}`);
+  }
   appendOperationSection(lines, 'Instructions', operations.instructions);
   appendOperationSection(lines, 'Skills', operations.skills);
   appendOperationSection(lines, 'Agents', operations.agents);
@@ -643,13 +685,13 @@ function printReport(result) {
   console.log(lines.join('\n'));
 }
 
-function runSync(dryRun, backupPath) {
+function runSync(dryRun, backupResult = {}) {
   resetRunState(dryRun);
   const result = {
     instructions: syncInstructions(),
     skills: syncSkills(),
     agents: syncAgents(),
-    backupPath,
+    ...backupResult,
   };
   result.hasChanges = hasChangingOperations();
   printReport(result);
@@ -704,8 +746,8 @@ async function main() {
     return;
   }
 
-  const backupPath = backup === 'on' ? backupGlobalSettings() : undefined;
-  runSync(false, backupPath);
+  const backupResult = backup === 'on' ? backupGlobalSettings() : undefined;
+  runSync(false, backupResult);
 }
 
 await main();
