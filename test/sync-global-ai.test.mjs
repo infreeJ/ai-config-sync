@@ -439,6 +439,186 @@ test('missing backup configuration defaults to creating a backup before changes'
   }
 });
 
+test('sync retains the newest configured backups and reports the expired snapshot', () => {
+  const environment = createTestEnvironment();
+  try {
+    const codexInstructions = join(environment.home, '.codex', 'AGENTS.md');
+    const sourceInstructions = join(environment.repository, 'sources', 'AGENTS.md');
+    const initialCodexContent = '## Local Codex instructions\nOriginal version.\n';
+    writeSyncConfig(environment.repository, { backupRetentionCount: 2 });
+    mkdirSync(dirname(codexInstructions), { recursive: true });
+    writeFileSync(codexInstructions, initialCodexContent);
+
+    const firstRun = runSync(environment);
+    assert.equal(firstRun.status, 0, firstRun.output);
+    const [firstBackup] = backupDirectories(environment.repository);
+    assert.ok(firstBackup);
+    assert.equal(readFileSync(join(environment.repository, 'backup', firstBackup, '.codex', 'AGENTS.md'), 'utf8'), initialCodexContent);
+
+    const codexBeforeSecondSync = readFileSync(codexInstructions, 'utf8');
+    writeFileSync(sourceInstructions, `${readFileSync(sourceInstructions, 'utf8')}\n## Second source version\n`);
+    const secondRun = runSync(environment);
+    assert.equal(secondRun.status, 0, secondRun.output);
+    const backupsAfterSecondSync = backupDirectories(environment.repository);
+    assert.equal(backupsAfterSecondSync.length, 2);
+    const secondBackup = backupsAfterSecondSync.find((backup) => backup !== firstBackup);
+    assert.ok(secondBackup);
+    assert.equal(
+      readFileSync(join(environment.repository, 'backup', secondBackup, '.codex', 'AGENTS.md'), 'utf8'),
+      codexBeforeSecondSync,
+    );
+
+    const codexBeforeThirdSync = readFileSync(codexInstructions, 'utf8');
+    writeFileSync(sourceInstructions, `${readFileSync(sourceInstructions, 'utf8')}\n## Third source version\n`);
+    const thirdRun = runSync(environment);
+
+    assert.equal(thirdRun.status, 0, thirdRun.output);
+    assert.match(thirdRun.output, new RegExp(`deleted backup: backup/${escapeRegExp(firstBackup)}`));
+    const retainedBackups = backupDirectories(environment.repository);
+    assert.equal(retainedBackups.length, 2);
+    assert.ok(retainedBackups.includes(secondBackup));
+    assert.equal(existsSync(join(environment.repository, 'backup', firstBackup)), false);
+    const thirdBackup = retainedBackups.find((backup) => backup !== secondBackup);
+    assert.ok(thirdBackup);
+    assert.equal(
+      readFileSync(join(environment.repository, 'backup', thirdBackup, '.codex', 'AGENTS.md'), 'utf8'),
+      codexBeforeThirdSync,
+    );
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('missing backupRetentionCount keeps the default ten newest backups', () => {
+  const environment = createTestEnvironment();
+  try {
+    const configPath = join(environment.repository, 'sync.config.json');
+    const config = JSON.parse(readFileSync(configPath, 'utf8'));
+    delete config.backupRetentionCount;
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    const backupRoot = join(environment.repository, 'backup');
+    const oldestBackup = '2025-01-01T00-00-00-000Z';
+
+    for (let index = 0; index < 10; index += 1) {
+      const name = `2025-01-${String(index + 1).padStart(2, '0')}T00-00-00-000Z`;
+      const fixture = join(backupRoot, name, '.codex');
+      mkdirSync(fixture, { recursive: true });
+      writeFileSync(join(fixture, 'AGENTS.md'), `Backup ${index + 1}\n`);
+    }
+    const backupsBeforeSync = backupDirectories(environment.repository);
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, new RegExp(`deleted backup: backup/${escapeRegExp(oldestBackup)}`));
+    const retainedBackups = backupDirectories(environment.repository);
+    const newBackup = retainedBackups.find((backup) => !backupsBeforeSync.includes(backup));
+    assert.ok(newBackup);
+    assert.deepEqual(retainedBackups, [...backupsBeforeSync.slice(1), newBackup].sort());
+    assert.equal(existsSync(join(backupRoot, oldestBackup)), false);
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('backup retention sorts same-timestamp suffixes by their numeric sequence', () => {
+  const environment = createTestEnvironment();
+  try {
+    const backupRoot = join(environment.repository, 'backup');
+    const timestamp = '2025-01-01T00-00-00-000Z';
+    const existingBackups = Array.from({ length: 11 }, (_, index) => (index === 0 ? timestamp : `${timestamp}-${index}`));
+    writeSyncConfig(environment.repository, { backupRetentionCount: 2 });
+    for (const backup of existingBackups) {
+      createBackupFixture(backupRoot, backup);
+    }
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, new RegExp(`deleted backup: backup/${escapeRegExp(timestamp)}(?:\\r?\\n|$)`));
+    assert.match(result.output, new RegExp(`deleted backup: backup/${escapeRegExp(`${timestamp}-9`)}(?:\\r?\\n|$)`));
+    assert.doesNotMatch(result.output, new RegExp(`deleted backup: backup/${escapeRegExp(`${timestamp}-10`)}(?:\\r?\\n|$)`));
+    const retainedBackups = backupDirectories(environment.repository);
+    const newBackup = retainedBackups.find((backup) => !existingBackups.includes(backup));
+    assert.ok(newBackup);
+    assert.deepEqual(retainedBackups, [`${timestamp}-10`, newBackup].sort());
+  } finally {
+    environment.cleanup();
+  }
+});
+
+for (const invalidRetentionCount of [0, -1, 1.5, '2']) {
+  test(`invalid backupRetentionCount ${JSON.stringify(invalidRetentionCount)} fails without writing global settings or backups`, () => {
+    const environment = createTestEnvironment();
+    try {
+      const codexInstructions = join(environment.home, '.codex', 'AGENTS.md');
+      const backupRoot = join(environment.repository, 'backup');
+      writeSyncConfig(environment.repository, { backupRetentionCount: invalidRetentionCount });
+      mkdirSync(dirname(codexInstructions), { recursive: true });
+      writeFileSync(codexInstructions, '## Local Codex instructions\nKeep unchanged.\n');
+      mkdirSync(join(backupRoot, '2025-01-01T00-00-00-000Z'), { recursive: true });
+      writeFileSync(join(backupRoot, '2025-01-01T00-00-00-000Z', 'saved.txt'), 'Keep this backup.\n');
+      const homeBefore = snapshotDirectory(environment.home);
+      const backupsBefore = snapshotDirectory(backupRoot);
+
+      const result = runSync(environment);
+
+      assert.notEqual(result.status, 0);
+      assert.match(result.output, /Invalid backupRetentionCount/);
+      assert.deepEqual(snapshotDirectory(environment.home), homeBefore);
+      assert.deepEqual(snapshotDirectory(backupRoot), backupsBefore);
+    } finally {
+      environment.cleanup();
+    }
+  });
+}
+
+for (const syncMode of [
+  { name: 'backup off', config: { backup: 'off', backupRetentionCount: 1 }, arguments_: ['--yes'] },
+  { name: 'dry run', config: { backupRetentionCount: 1 }, arguments_: ['--dry-run'] },
+]) {
+  test(`${syncMode.name} does not prune existing backups`, () => {
+    const environment = createTestEnvironment();
+    try {
+      const backupRoot = join(environment.repository, 'backup');
+      writeSyncConfig(environment.repository, syncMode.config);
+      createBackupFixture(backupRoot, '2025-01-01T00-00-00-000Z');
+      createBackupFixture(backupRoot, '2025-01-02T00-00-00-000Z');
+      const backupsBefore = snapshotDirectory(backupRoot);
+
+      const result = runSync(environment, syncMode.arguments_);
+
+      assert.equal(result.status, 0, result.output);
+      assert.deepEqual(snapshotDirectory(backupRoot), backupsBefore);
+    } finally {
+      environment.cleanup();
+    }
+  });
+}
+
+test('backup retention preserves backup folders not created by the sync tool', () => {
+  const environment = createTestEnvironment();
+  try {
+    const backupRoot = join(environment.repository, 'backup');
+    const expiredBackup = '2025-01-01T00-00-00-000Z';
+    const manualBackup = join(backupRoot, 'manual-backup');
+    writeSyncConfig(environment.repository, { backupRetentionCount: 1 });
+    createBackupFixture(backupRoot, expiredBackup);
+    mkdirSync(manualBackup, { recursive: true });
+    writeFileSync(join(manualBackup, 'keep.txt'), 'Do not remove this folder.\n');
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, new RegExp(`deleted backup: backup/${escapeRegExp(expiredBackup)}`));
+    assert.equal(existsSync(join(backupRoot, expiredBackup)), false);
+    assert.equal(readFileSync(join(manualBackup, 'keep.txt'), 'utf8'), 'Do not remove this folder.\n');
+    assert.equal(backupDirectories(environment.repository).length, 2);
+  } finally {
+    environment.cleanup();
+  }
+});
+
 test('summary excludes hidden target root setup', () => {
   const environment = createTestEnvironment();
   try {
@@ -678,6 +858,12 @@ function backupDirectories(repository) {
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort();
+}
+
+function createBackupFixture(backupRoot, name) {
+  const fixture = join(backupRoot, name, '.codex');
+  mkdirSync(fixture, { recursive: true });
+  writeFileSync(join(fixture, 'AGENTS.md'), `Backup fixture: ${name}\n`);
 }
 
 function writeSyncConfig(repository, overrides) {

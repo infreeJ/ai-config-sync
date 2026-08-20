@@ -96,7 +96,7 @@ const MANAGED_INSTRUCTION_SOURCE = `<!-- AUTO-GENERATED from ${SOURCE_ROOT} -->`
 const INSTRUCTION_MODES = new Set(['append', 'off', 'sidecar', 'managed']);
 const PRE_COMMIT_SYNC_MODES = new Set(['on', 'off']);
 const BACKUP_MODES = new Set(['on', 'off']);
-const BACKUP_DIRECTORY_NAME = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(?:-\d+)?$/;
+const BACKUP_DIRECTORY_NAME = /^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)(?:-(\d+))?$/;
 let DRY_RUN = true;
 let stats;
 let operations;
@@ -331,11 +331,21 @@ function listManagedBackupDirectories() {
       directory: join(BACKUP_ROOT, entry.name),
       relativePath: `backup/${entry.name}`,
     }))
-    .sort((left, right) => {
-      if (left.name < right.name) return -1;
-      if (left.name > right.name) return 1;
-      return 0;
-    });
+    .sort((left, right) => compareBackupDirectoryNames(left.name, right.name));
+}
+
+function compareBackupDirectoryNames(leftName, rightName) {
+  const [, leftTimestamp, leftSuffix = '0'] = leftName.match(BACKUP_DIRECTORY_NAME);
+  const [, rightTimestamp, rightSuffix = '0'] = rightName.match(BACKUP_DIRECTORY_NAME);
+
+  if (leftTimestamp < rightTimestamp) return -1;
+  if (leftTimestamp > rightTimestamp) return 1;
+
+  const leftSequence = BigInt(leftSuffix);
+  const rightSequence = BigInt(rightSuffix);
+  if (leftSequence < rightSequence) return -1;
+  if (leftSequence > rightSequence) return 1;
+  return 0;
 }
 
 function pruneBackups() {
