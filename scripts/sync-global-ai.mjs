@@ -369,7 +369,7 @@ function backupGlobalSettings() {
     const destination = join(backupDirectory.directory, spec.destination);
     ensureInside(destination, backupDirectory.directory);
     mkdirSync(dirname(destination), { recursive: true });
-    cpSync(spec.source, destination, { recursive: true });
+    cpSync(spec.source, destination, { recursive: true, dereference: true });
   }
 
   return {
