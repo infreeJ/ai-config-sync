@@ -8,6 +8,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -340,6 +341,51 @@ test('sync backs up every global instruction, skill, and agent before applying c
     assert.equal(readFileSync(join(backup, '.agents', 'skills', 'local-codex-skill', 'SKILL.md'), 'utf8'), '# Local Codex skill\n');
     assert.equal(readFileSync(join(backup, '.claude', 'agents', 'local-agent.md'), 'utf8'), 'Local Claude agent\n');
     assert.equal(readFileSync(join(backup, '.codex', 'agents', 'local-agent.toml'), 'utf8'), 'Local Codex agent\n');
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('backup dereferences a symlinked backup source so the backup contains the linked content', (t) => {
+  const environment = createTestEnvironment();
+  try {
+    // The EPERM bug only reproduces when a BACKUP_SPECS `source` path itself is a
+    // symlink/junction (e.g. TARGETS.claude.skills). Nested links inside a copied
+    // directory do not trigger it, because Node's recursive cpSync dereferences
+    // those automatically; only the top-level source triggers a symlinkSync
+    // recreation attempt.
+    const realSkillsRoot = join(environment.home, 'real-skills-root');
+    const linkedSkillDirectory = join(realSkillsRoot, 'linked-skill');
+    mkdirSync(linkedSkillDirectory, { recursive: true });
+    writeFileSync(join(linkedSkillDirectory, 'SKILL.md'), '# Linked skill\n');
+
+    const claudeRoot = join(environment.home, '.claude');
+    mkdirSync(claudeRoot, { recursive: true });
+    const claudeSkills = join(claudeRoot, 'skills');
+
+    try {
+      symlinkSync(realSkillsRoot, claudeSkills, 'junction');
+    } catch (error) {
+      if (error.code !== 'EPERM') throw error;
+      t.skip(`symlink creation is not permitted in this environment: ${error.message}`);
+      return;
+    }
+
+    const codexInstructions = join(environment.home, '.codex', 'AGENTS.md');
+    mkdirSync(dirname(codexInstructions), { recursive: true });
+    writeFileSync(codexInstructions, '## Local Codex instructions\nTrigger a backup.\n');
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    const [backup] = backupDirectories(environment.repository);
+    assert.ok(backup);
+    const backedUpSkillsDirectory = join(environment.repository, 'backup', backup, '.claude', 'skills');
+    assert.deepEqual(readdirSync(backedUpSkillsDirectory), ['linked-skill']);
+    assert.equal(
+      readFileSync(join(backedUpSkillsDirectory, 'linked-skill', 'SKILL.md'), 'utf8'),
+      '# Linked skill\n',
+    );
   } finally {
     environment.cleanup();
   }
