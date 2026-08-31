@@ -1026,29 +1026,116 @@ test('maps agent reasoning effort for Claude and Codex independently', () => {
   }
 });
 
+test('maps agent models for Claude, Codex, and Antigravity independently', () => {
+  const environment = createTestEnvironment();
+  try {
+    const sourceAgent = join(environment.repository, 'sources', 'agents', 'mapped-model-agent.md');
+    const claudeAgent = join(environment.home, '.claude', 'agents', 'mapped-model-agent.md');
+    const codexAgent = join(environment.home, '.codex', 'agents', 'mapped-model-agent.toml');
+    const antigravityAgent = join(environment.home, '.gemini', 'config', 'agents', 'mapped-model-agent', 'agent.md');
+    const sourceMarkdown = [
+      '---',
+      'name: mapped-model-agent',
+      'description: Maps models independently for each target',
+      'model: opus',
+      '---',
+      '',
+      '# Mapped model agent',
+      '',
+    ].join('\n');
+    writeSyncConfig(environment.repository, {
+      instructionsMode: 'off',
+      agentModelMap: {
+        opus: { claude: 'sonnet', codex: 'gpt-5.6-terra', antigravity: 'flash' },
+      },
+    });
+    mkdirSync(dirname(sourceAgent), { recursive: true });
+    writeFileSync(sourceAgent, sourceMarkdown);
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(readFileSync(claudeAgent, 'utf8'), /^model: sonnet$/m);
+    assert.match(readFileSync(codexAgent, 'utf8'), /model = "gpt-5\.6-terra"/);
+    assert.match(readFileSync(antigravityAgent, 'utf8'), /^model: flash$/m);
+  } finally {
+    environment.cleanup();
+  }
+});
+
 for (const invalidMapping of [
   {
-    name: 'missing source model mapping',
+    name: 'invalid source model',
     frontmatter: 'model: unmapped-model',
     config: {},
-    error: /Missing agent model mapping for "unmapped-model"/,
+    error: /Invalid source model "unmapped-model".*Expected one of: opus, sonnet, haiku/,
+  },
+  {
+    name: 'missing source model mapping',
+    frontmatter: 'model: sonnet',
+    config: {
+      agentModelMap: {
+        sonnet: null,
+      },
+    },
+    error: /Missing agent model mapping for "sonnet"/,
+  },
+  {
+    name: 'missing Claude model mapping',
+    frontmatter: 'model: opus',
+    config: {
+      agentModelMap: {
+        opus: { codex: 'gpt-5.6-sol', antigravity: 'pro' },
+      },
+    },
+    error: /Missing Claude model mapping for "opus"/,
+  },
+  {
+    name: 'invalid Claude model mapping',
+    frontmatter: 'model: opus',
+    config: {
+      agentModelMap: {
+        opus: { claude: 'invalid', codex: 'gpt-5.6-sol', antigravity: 'pro' },
+      },
+    },
+    error: /Invalid Claude model mapping for "opus".*Expected one of: opus, sonnet, haiku/,
   },
   {
     name: 'missing Codex model mapping',
     frontmatter: 'model: opus',
     config: {
       agentModelMap: {
-        opus: { antigravity: 'pro' },
+        opus: { claude: 'opus', antigravity: 'pro' },
       },
     },
     error: /Missing Codex model mapping for "opus"/,
+  },
+  {
+    name: 'invalid Codex model mapping',
+    frontmatter: 'model: opus',
+    config: {
+      agentModelMap: {
+        opus: { claude: 'opus', codex: '', antigravity: 'pro' },
+      },
+    },
+    error: /Invalid Codex model mapping for "opus".*Expected a non-empty string/,
+  },
+  {
+    name: 'missing Antigravity model mapping',
+    frontmatter: 'model: opus',
+    config: {
+      agentModelMap: {
+        opus: { claude: 'opus', codex: 'gpt-5.6-sol' },
+      },
+    },
+    error: /Missing Antigravity model mapping for "opus"/,
   },
   {
     name: 'invalid Antigravity model mapping',
     frontmatter: 'model: opus',
     config: {
       agentModelMap: {
-        opus: { codex: 'gpt-5.6-sol', antigravity: 'invalid' },
+        opus: { claude: 'opus', codex: 'gpt-5.6-sol', antigravity: 'invalid' },
       },
     },
     error: /Invalid Antigravity model mapping for "opus".*Expected "flash" or "pro"/,

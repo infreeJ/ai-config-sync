@@ -5,15 +5,18 @@
   "backupRetentionCount": 10,
   "agentModelMap": {
     "opus": {
+      "claude": "opus",
       "codex": "gpt-5.6-sol",
       "antigravity": "pro"
     },
     "sonnet": {
+      "claude": "sonnet",
       "codex": "gpt-5.6-terra",
       "antigravity": "pro"
     },
     "haiku": {
-      "codex": "gpt-5.6-terra",
+      "claude": "haiku",
+      "codex": "gpt-5.6-luna",
       "antigravity": "flash"
     }
   },

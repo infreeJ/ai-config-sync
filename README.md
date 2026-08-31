@@ -164,16 +164,17 @@ Agent instructions go here.
 
 `model`과 `effort`는 선택 사항입니다. 생략하면 세 도구 모두 해당 필드를 출력하지 않아 부모 또는 기본 설정을 상속합니다.
 
-- Claude는 원본 Markdown의 `model`을 그대로 사용하고, `effort`는 `agentEffortMap`의 `claude` 매핑값으로 변환합니다.
+- Claude는 `model`과 `effort`를 각각 `agentModelMap`, `agentEffortMap`의 `claude` 매핑값으로 변환합니다.
 - Codex는 `model`을 대상 모델로 바꾸고 `effort`를 `model_reasoning_effort`로 변환합니다.
 - Antigravity CLI는 대상 모델만 받고 `effort`는 출력하지 않습니다.
 
-`sync.config.json`의 `agentModelMap`에서 Claude 원본 모델을 Codex와 Antigravity CLI 모델로 매핑합니다. `agentEffortMap`은 Claude 원본 추론 수준을 Claude와 Codex의 추론 수준으로 별도로 매핑하며, Antigravity 값은 지원하지 않음을 뜻하는 빈 문자열(`""`)로 둡니다. Antigravity CLI 모델은 `flash` 또는 `pro`만 사용할 수 있고, 추론 수준은 받지 않습니다.
+`sync.config.json`의 `agentModelMap`은 Claude 원본 모델을 Claude, Codex, Antigravity CLI 모델로 각각 매핑합니다. `agentEffortMap`은 Claude 원본 추론 수준을 Claude와 Codex의 추론 수준으로 별도로 매핑하며, Antigravity 값은 지원하지 않음을 뜻하는 빈 문자열(`""`)로 둡니다. Claude 모델의 원본 키와 대상 값은 `opus`, `sonnet`, `haiku` 중 하나여야 하고, Antigravity CLI 모델은 `flash` 또는 `pro`만 사용할 수 있습니다. Antigravity CLI는 추론 수준을 받지 않습니다.
 
 ```json
 {
   "agentModelMap": {
     "sonnet": {
+      "claude": "sonnet",
       "codex": "gpt-5.6-terra",
       "antigravity": "pro"
     }
@@ -208,7 +209,7 @@ Agent instructions go here.
 }
 ```
 
-이전 설정의 `codexAgentDefaults`, `codexAgentModelMap`은 더 이상 사용하지 않습니다. 두 키를 제거하고 필요한 모델마다 `agentModelMap` 항목을 추가하세요. 원본 에이전트에 `model`을 썼다면 해당 모델의 Codex와 Antigravity CLI 매핑은 모두 필요하고, `effort`를 썼다면 해당 추론 수준의 `agentEffortMap` 항목이 필요합니다. 원본 키와 Claude 대상 값은 `low`, `medium`, `high`, `xhigh`, `max` 중 하나여야 합니다. Codex 대상 값은 `none`, `low`, `medium`, `high`, `xhigh`, `max` 중 하나여야 합니다.
+이전 설정의 `codexAgentDefaults`, `codexAgentModelMap`은 더 이상 사용하지 않습니다. 두 키를 제거하고 필요한 모델마다 `agentModelMap` 항목을 추가하세요. 원본 에이전트에 `model`을 썼다면 해당 모델의 Claude, Codex, Antigravity CLI 매핑이 모두 필요하고, `effort`를 썼다면 해당 추론 수준의 `agentEffortMap` 항목이 필요합니다. 추론 수준의 원본 키와 Claude 대상 값은 `low`, `medium`, `high`, `xhigh`, `max` 중 하나여야 합니다. Codex 대상 값은 `none`, `low`, `medium`, `high`, `xhigh`, `max` 중 하나여야 합니다.
 
 <br>
 
