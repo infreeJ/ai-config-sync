@@ -53,7 +53,7 @@ sync.config.json      # 동기화 설정 파일
 | `sources/CLAUDE.md` | 지시문 파일 | — | — |
 | `sources/AGENTS.md` | — | 지시문 파일 | — |
 | `sources/GEMINI.md` | — | — | 지시문 파일 |
-| `sources/skills/<name>/SKILL.md` | `~/.claude/skills/<name>/` | `~/.agents/skills/<name>/` | `~/.gemini/antigravity-cli/skills/<name>.md` |
+| `sources/skills/<name>/SKILL.md` | `~/.claude/skills/<name>/SKILL.md` | `~/.agents/skills/<name>/SKILL.md` | `~/.gemini/antigravity-cli/skills/<name>/SKILL.md` |
 | `sources/agents/<name>.md` | `~/.claude/agents/<name>.md` | `~/.codex/agents/<name>.toml` | `~/.gemini/config/agents/<name>/agent.md` |
 
 `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`는 각각 Claude, Codex, Antigravity CLI에만 동기화합니다.
@@ -147,7 +147,7 @@ Claude에서는 경로를 `~/.claude/CLAUDE-sync.md`로, Antigravity CLI에서�
 
 ## 원본 작성법
 
-스킬은 `sources/skills/<skill-name>/`에 두고, 중심 지시문을 `SKILL.md`에 작성합니다. 스킬 프론트매터에는 `name`, `description`만 쓸 수 있습니다. 필요한 보조 파일도 같은 디렉터리에 둘 수 있으며 Claude와 Codex에는 함께 복사됩니다. Antigravity CLI에는 `SKILL.md`만 동기화되므로 보조 파일은 사용할 수 없습니다.
+스킬은 `sources/skills/<skill-name>/`에 두고, 중심 지시문을 `SKILL.md`에 작성합니다. 스킬 프론트매터에는 `name`, `description`만 쓸 수 있습니다. 필요한 보조 파일도 같은 디렉터리에 둘 수 있으며 Claude, Codex, Antigravity CLI에 함께 복사됩니다.
 
 에이전트는 `sources/agents/<agent-name>.md`에 Claude 기준으로 작성합니다. 에이전트 프론트매터에는 `name`, `description`, `model`, `effort`만 쓸 수 있습니다.
 

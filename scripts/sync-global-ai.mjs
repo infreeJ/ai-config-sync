@@ -771,25 +771,22 @@ function replaceSkill(name, sourceDir, target) {
   copyDirectory(sourceDir, destination, target.root);
 }
 
-function clearAntigravitySkillName(name, keepPath) {
-  for (const candidate of [
-    join(TARGETS.antigravitySkills.skills, name),
-    join(TARGETS.antigravitySkills.skills, `${name}.toml`),
-  ]) {
-    if (!existsSync(candidate)) continue;
-    if (resolve(candidate) === resolve(keepPath)) continue;
-    recordOperation('skills', 'overwrite', `stale ${basename(candidate)}`, candidate);
-    removeIfExists(candidate, TARGETS.antigravitySkills.root);
+function clearAntigravityLegacySkillFile(name) {
+  const legacyPath = join(TARGETS.antigravitySkills.skills, `${name}.md`);
+  if (!existsSync(legacyPath)) return;
+
+  if (!statSync(legacyPath).isFile()) {
+    recordSkip(`skill ${name}: preserving legacy target because it is not a file`);
+    return;
   }
+
+  recordOperation('skills', 'overwrite', `stale ${basename(legacyPath)}`, legacyPath);
+  removeIfExists(legacyPath, TARGETS.antigravitySkills.root);
 }
 
-function replaceAntigravitySkill(name, sourceFile) {
-  const destination = join(TARGETS.antigravitySkills.skills, `${name}.md`);
-  clearAntigravitySkillName(name, destination);
-  writeFile(destination, readFileSync(sourceFile, 'utf8'), TARGETS.antigravitySkills.root, {
-    section: 'skills',
-    label: name,
-  });
+function replaceAntigravitySkill(name, sourceDirectory) {
+  clearAntigravityLegacySkillFile(name);
+  replaceSkill(name, sourceDirectory, TARGETS.antigravitySkills);
 }
 
 function syncSkills() {
@@ -808,7 +805,7 @@ function syncSkills() {
     const sourceSkillFile = join(entry.path, 'SKILL.md');
     if (existsSync(sourceSkillFile) && statSync(sourceSkillFile).isFile()) {
       ensureTargetRoot(TARGETS.antigravitySkills);
-      replaceAntigravitySkill(entry.name, sourceSkillFile);
+      replaceAntigravitySkill(entry.name, entry.path);
     }
     count += 1;
   }

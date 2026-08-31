@@ -833,15 +833,15 @@ test('sidecar mode preserves global instructions and writes all instruction side
   }
 });
 
-test('syncs nested skills to .agents while preserving legacy Codex skills and agents idempotently', () => {
+test('syncs nested skills to every target while migrating legacy Antigravity skill files idempotently', () => {
   const environment = createTestEnvironment();
   try {
     const sourceSkill = join(environment.repository, 'sources', 'skills', 'nested-skill');
     const sourceAgent = join(environment.repository, 'sources', 'agents', 'review-agent.md');
     const claudeSkill = join(environment.home, '.claude', 'skills', 'nested-skill');
     const codexSkill = join(environment.home, '.agents', 'skills', 'nested-skill');
-    const antigravitySkill = join(environment.home, '.gemini', 'antigravity-cli', 'skills', 'nested-skill.md');
-    const staleAntigravitySkill = join(environment.home, '.gemini', 'antigravity-cli', 'skills', 'nested-skill');
+    const antigravitySkill = join(environment.home, '.gemini', 'antigravity-cli', 'skills', 'nested-skill');
+    const legacyAntigravitySkill = join(environment.home, '.gemini', 'antigravity-cli', 'skills', 'nested-skill.md');
     const legacyCodexSkill = join(environment.home, '.codex', 'skills', 'nested-skill');
     const claudeAgent = join(environment.home, '.claude', 'agents', 'review-agent.md');
     const codexAgent = join(environment.home, '.codex', 'agents', 'review-agent.toml');
@@ -877,12 +877,12 @@ test('syncs nested skills to .agents while preserving legacy Codex skills and ag
     mkdirSync(join(environment.home, '.claude', 'agents'), { recursive: true });
     mkdirSync(join(environment.home, '.codex', 'agents'), { recursive: true });
     mkdirSync(join(environment.home, '.gemini', 'config', 'agents'), { recursive: true });
-    mkdirSync(staleAntigravitySkill, { recursive: true });
+    mkdirSync(dirname(legacyAntigravitySkill), { recursive: true });
     mkdirSync(join(environment.home, '.gemini', 'antigravity-cli', 'skills', 'preserved-skill'), { recursive: true });
     mkdirSync(join(environment.repository, 'sources', 'agents'), { recursive: true });
     writeFileSync(join(sourceSkill, 'SKILL.md'), skillMarkdown);
     writeFileSync(join(sourceSkill, 'references', 'guide.md'), 'Nested reference\n');
-    writeFileSync(join(staleAntigravitySkill, 'SKILL.md'), 'Stale Antigravity nested skill\n');
+    writeFileSync(legacyAntigravitySkill, 'Stale Antigravity skill file\n');
     writeFileSync(
       join(environment.home, '.gemini', 'antigravity-cli', 'skills', 'preserved-skill', 'SKILL.md'),
       'Antigravity local skill\n',
@@ -907,9 +907,9 @@ test('syncs nested skills to .agents while preserving legacy Codex skills and ag
     assert.equal(readFileSync(join(claudeSkill, 'references', 'guide.md'), 'utf8'), 'Nested reference\n');
     assert.equal(readFileSync(join(codexSkill, 'SKILL.md'), 'utf8'), skillMarkdown);
     assert.equal(readFileSync(join(codexSkill, 'references', 'guide.md'), 'utf8'), 'Nested reference\n');
-    assert.equal(readFileSync(antigravitySkill, 'utf8'), skillMarkdown);
-    assert.equal(existsSync(join(environment.home, '.gemini', 'antigravity-cli', 'skills', 'nested-skill', 'references')), false);
-    assert.equal(existsSync(staleAntigravitySkill), false);
+    assert.equal(readFileSync(join(antigravitySkill, 'SKILL.md'), 'utf8'), skillMarkdown);
+    assert.equal(readFileSync(join(antigravitySkill, 'references', 'guide.md'), 'utf8'), 'Nested reference\n');
+    assert.equal(existsSync(legacyAntigravitySkill), false);
     assert.equal(
       readFileSync(join(environment.home, '.gemini', 'antigravity-cli', 'skills', 'preserved-skill', 'SKILL.md'), 'utf8'),
       'Antigravity local skill\n',
@@ -948,6 +948,39 @@ test('syncs nested skills to .agents while preserving legacy Codex skills and ag
     assert.doesNotMatch(secondRun.output, /Instructions/);
     assert.match(secondRun.output, /No changes to apply; sync cancelled without writing\./);
     assert.deepEqual(snapshotDirectory(environment.home), homeAfterFirstRun);
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('preserves non-file Antigravity paths that use a legacy skill filename', () => {
+  const environment = createTestEnvironment();
+  try {
+    const sourceSkill = join(environment.repository, 'sources', 'skills', 'safe-skill');
+    const antigravitySkill = join(environment.home, '.gemini', 'antigravity-cli', 'skills', 'safe-skill');
+    const legacyNamedDirectory = join(environment.home, '.gemini', 'antigravity-cli', 'skills', 'safe-skill.md');
+    const skillMarkdown = [
+      '---',
+      'name: safe-skill',
+      'description: Preserves non-file legacy paths',
+      '---',
+      '',
+      '# Safe skill',
+      '',
+    ].join('\n');
+
+    writeSyncConfig(environment.repository, { instructionsMode: 'off' });
+    mkdirSync(sourceSkill, { recursive: true });
+    mkdirSync(legacyNamedDirectory, { recursive: true });
+    writeFileSync(join(sourceSkill, 'SKILL.md'), skillMarkdown);
+    writeFileSync(join(legacyNamedDirectory, 'SKILL.md'), '# Unrelated local skill\n');
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.equal(readFileSync(join(antigravitySkill, 'SKILL.md'), 'utf8'), skillMarkdown);
+    assert.equal(readFileSync(join(legacyNamedDirectory, 'SKILL.md'), 'utf8'), '# Unrelated local skill\n');
+    assert.match(result.output, /preserving legacy target because it is not a file/);
   } finally {
     environment.cleanup();
   }
