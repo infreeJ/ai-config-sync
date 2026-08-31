@@ -44,14 +44,10 @@ const DEFAULT_CONFIG = {
   preCommitSync: 'off',
   backup: 'on',
   backupRetentionCount: 10,
-  codexAgentDefaults: {
-    model: 'gpt-5',
-    reasoningEffort: 'high',
-  },
-  codexAgentModelMap: {
-    opus: { model: 'gpt-5', reasoningEffort: 'xhigh' },
-    sonnet: { model: 'gpt-5', reasoningEffort: 'high' },
-    haiku: { model: 'gpt-5', reasoningEffort: 'medium' },
+  agentModelMap: {
+    opus: { codex: 'gpt-5', antigravity: 'pro' },
+    sonnet: { codex: 'gpt-5', antigravity: 'pro' },
+    haiku: { codex: 'gpt-5', antigravity: 'flash' },
   },
 };
 
@@ -78,6 +74,10 @@ const TARGETS = {
     root: join(home, '.agents'),
     skills: join(home, '.agents', 'skills'),
   },
+  antigravity: {
+    root: join(home, '.gemini', 'config'),
+    agents: join(home, '.gemini', 'config', 'agents'),
+  },
 };
 
 const BACKUP_SPECS = [
@@ -87,6 +87,7 @@ const BACKUP_SPECS = [
   { source: TARGETS.codexSkills.skills, destination: join('.agents', 'skills') },
   { source: TARGETS.claude.agents, destination: join('.claude', 'agents') },
   { source: TARGETS.codex.agents, destination: join('.codex', 'agents') },
+  { source: TARGETS.antigravity.agents, destination: join('.gemini', 'config', 'agents') },
 ];
 
 const HEADER = 'AUTO-GENERATED from ai-config-sync. Edit the source under sources/.';
@@ -136,13 +137,9 @@ function readConfig() {
   return {
     ...DEFAULT_CONFIG,
     ...userConfig,
-    codexAgentDefaults: {
-      ...DEFAULT_CONFIG.codexAgentDefaults,
-      ...(userConfig.codexAgentDefaults || {}),
-    },
-    codexAgentModelMap: {
-      ...DEFAULT_CONFIG.codexAgentModelMap,
-      ...(userConfig.codexAgentModelMap || {}),
+    agentModelMap: {
+      ...DEFAULT_CONFIG.agentModelMap,
+      ...(userConfig.agentModelMap || {}),
     },
   };
 }
@@ -594,7 +591,13 @@ function validateSourceFrontmatter() {
 
   for (const entry of listEntries(SOURCE_AGENTS)) {
     if (!entry.stat.isFile() || !entry.name.toLowerCase().endsWith('.md')) continue;
-    validateFrontmatter(readFileSync(entry.path, 'utf8'), entry.path, 'agent', AGENT_FRONTMATTER_FIELDS);
+    const frontmatter = validateFrontmatter(
+      readFileSync(entry.path, 'utf8'),
+      entry.path,
+      'agent',
+      AGENT_FRONTMATTER_FIELDS,
+    );
+    validateAgentModelMapping(frontmatter.meta, entry.path);
   }
 }
 
@@ -602,26 +605,52 @@ function tomlString(value) {
   return JSON.stringify(String(value));
 }
 
+function validateAgentModelMapping(meta, sourcePath) {
+  if (!meta.model) return;
+
+  const mapped = config.agentModelMap[meta.model];
+  if (!mapped || typeof mapped !== 'object') {
+    throw new Error(`Missing agent model mapping for "${meta.model}" in ${sourcePath}.`);
+  }
+  if (typeof mapped.codex !== 'string' || mapped.codex === '') {
+    throw new Error(`Missing Codex model mapping for "${meta.model}" in ${sourcePath}.`);
+  }
+  if (!['flash', 'pro'].includes(mapped.antigravity)) {
+    throw new Error(
+      `Invalid Antigravity model mapping for "${meta.model}" in ${sourcePath}. Expected "flash" or "pro".`,
+    );
+  }
+}
+
+function agentModelMapping(meta) {
+  return meta.model ? config.agentModelMap[meta.model] : undefined;
+}
+
 function codexAgentToml(name, markdown) {
   const { meta, body } = parseFrontmatter(markdown);
-  const modelKey = meta.model;
-  const mapped = modelKey ? config.codexAgentModelMap[modelKey] : undefined;
-  const agentConfig = {
-    ...config.codexAgentDefaults,
-    ...(mapped || {}),
-  };
+  const mapped = agentModelMapping(meta);
   const description = meta.description || '';
   const instructions = body.replace(/^\r?\n+/, '').replace(/\s+$/, '');
 
-  return [
+  const lines = [
     `# ${HEADER}`,
     `name = ${tomlString(name)}`,
     `description = ${tomlString(description)}`,
-    `model = ${tomlString(agentConfig.model)}`,
-    `model_reasoning_effort = ${tomlString(agentConfig.reasoningEffort)}`,
-    `developer_instructions = ${tomlString(instructions)}`,
-    '',
-  ].join('\n');
+  ];
+  if (mapped) lines.push(`model = ${tomlString(mapped.codex)}`);
+  if (meta.effort) lines.push(`model_reasoning_effort = ${tomlString(meta.effort)}`);
+  lines.push(`developer_instructions = ${tomlString(instructions)}`, '');
+  return lines.join('\n');
+}
+
+function antigravityAgentMarkdown(markdown) {
+  const { meta, body } = parseFrontmatter(markdown);
+  const mapped = agentModelMapping(meta);
+  const instructions = body.replace(/^\r?\n+/, '').replace(/\s+$/, '');
+  const lines = ['---', `name: ${JSON.stringify(meta.name)}`, `description: ${JSON.stringify(meta.description)}`];
+  if (mapped) lines.push(`model: ${mapped.antigravity}`);
+  lines.push('---', '', instructions, '');
+  return lines.join('\n');
 }
 
 function replaceSkill(name, sourceDir, target) {
@@ -654,12 +683,20 @@ function syncSkills() {
 }
 
 function clearAgentName(target, name, keepPath) {
+  const keepDirectory = keepPath ? dirname(keepPath) : undefined;
   for (const candidate of [
     join(target.agents, `${name}.md`),
     join(target.agents, `${name}.toml`),
     join(target.agents, name),
   ]) {
     if (keepPath && resolve(candidate) === resolve(keepPath)) continue;
+    if (keepDirectory && resolve(candidate) === resolve(keepDirectory)) {
+      if (existsSync(candidate) && !statSync(candidate).isDirectory()) {
+        recordOperation('agents', 'overwrite', `stale ${basename(candidate)}`, candidate);
+        removeIfExists(candidate, target.root);
+      }
+      continue;
+    }
     if (existsSync(candidate)) {
       recordOperation('agents', 'overwrite', `stale ${basename(candidate)}`, candidate);
       removeIfExists(candidate, target.root);
@@ -686,6 +723,19 @@ function syncMarkdownAgent(entry) {
     section: 'agents',
     label: entry.name,
   });
+
+  ensureTargetRoot(TARGETS.antigravity);
+  const antigravityDestination = join(TARGETS.antigravity.agents, name, 'agent.md');
+  clearAgentName(TARGETS.antigravity, name, antigravityDestination);
+  writeFile(
+    antigravityDestination,
+    antigravityAgentMarkdown(markdown),
+    TARGETS.antigravity.root,
+    {
+      section: 'agents',
+      label: entry.name,
+    },
+  );
 }
 
 function syncAgents() {

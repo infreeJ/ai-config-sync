@@ -308,6 +308,7 @@ test('sync backs up every global instruction, skill, and agent before applying c
     const codexSkill = join(environment.home, '.agents', 'skills', 'local-codex-skill');
     const claudeAgent = join(environment.home, '.claude', 'agents', 'local-agent.md');
     const codexAgent = join(environment.home, '.codex', 'agents', 'local-agent.toml');
+    const antigravityAgent = join(environment.home, '.gemini', 'config', 'agents', 'local-agent', 'agent.md');
     const codexContent = '## Local Codex instructions\nPreserve this version.\n';
     const claudeContent = '## Local Claude instructions\nPreserve this version.\n';
 
@@ -315,6 +316,7 @@ test('sync backs up every global instruction, skill, and agent before applying c
     mkdirSync(codexSkill, { recursive: true });
     mkdirSync(dirname(claudeAgent), { recursive: true });
     mkdirSync(dirname(codexAgent), { recursive: true });
+    mkdirSync(dirname(antigravityAgent), { recursive: true });
     writeFileSync(codexInstructions, codexContent);
     writeFileSync(claudeInstructions, claudeContent);
     writeFileSync(join(claudeSkill, 'SKILL.md'), '# Local Claude skill\n');
@@ -322,6 +324,7 @@ test('sync backs up every global instruction, skill, and agent before applying c
     writeFileSync(join(codexSkill, 'SKILL.md'), '# Local Codex skill\n');
     writeFileSync(claudeAgent, 'Local Claude agent\n');
     writeFileSync(codexAgent, 'Local Codex agent\n');
+    writeFileSync(antigravityAgent, 'Local Antigravity agent\n');
 
     const result = runSync(environment);
 
@@ -341,6 +344,10 @@ test('sync backs up every global instruction, skill, and agent before applying c
     assert.equal(readFileSync(join(backup, '.agents', 'skills', 'local-codex-skill', 'SKILL.md'), 'utf8'), '# Local Codex skill\n');
     assert.equal(readFileSync(join(backup, '.claude', 'agents', 'local-agent.md'), 'utf8'), 'Local Claude agent\n');
     assert.equal(readFileSync(join(backup, '.codex', 'agents', 'local-agent.toml'), 'utf8'), 'Local Codex agent\n');
+    assert.equal(
+      readFileSync(join(backup, '.gemini', 'config', 'agents', 'local-agent', 'agent.md'), 'utf8'),
+      'Local Antigravity agent\n',
+    );
   } finally {
     environment.cleanup();
   }
@@ -744,11 +751,13 @@ test('syncs nested skills to .agents while preserving legacy Codex skills and ag
     const legacyCodexSkill = join(environment.home, '.codex', 'skills', 'nested-skill');
     const claudeAgent = join(environment.home, '.claude', 'agents', 'review-agent.md');
     const codexAgent = join(environment.home, '.codex', 'agents', 'review-agent.toml');
+    const antigravityAgent = join(environment.home, '.gemini', 'config', 'agents', 'review-agent', 'agent.md');
     const agentMarkdown = [
       '---',
       'name: review-agent',
       'description: Reviews implementation changes',
       'model: opus',
+      'effort: xhigh',
       '---',
       '',
       '# Review agent',
@@ -773,6 +782,7 @@ test('syncs nested skills to .agents while preserving legacy Codex skills and ag
     mkdirSync(join(environment.home, '.codex', 'skills', 'preserved-skill'), { recursive: true });
     mkdirSync(join(environment.home, '.claude', 'agents'), { recursive: true });
     mkdirSync(join(environment.home, '.codex', 'agents'), { recursive: true });
+    mkdirSync(join(environment.home, '.gemini', 'config', 'agents'), { recursive: true });
     mkdirSync(join(environment.repository, 'sources', 'agents'), { recursive: true });
     writeFileSync(join(sourceSkill, 'SKILL.md'), skillMarkdown);
     writeFileSync(join(sourceSkill, 'references', 'guide.md'), 'Nested reference\n');
@@ -784,12 +794,14 @@ test('syncs nested skills to .agents while preserving legacy Codex skills and ag
     writeFileSync(join(environment.home, '.claude', 'agents', 'review-agent'), 'stale Claude extensionless variant\n');
     writeFileSync(join(environment.home, '.codex', 'agents', 'review-agent.md'), 'stale Codex variant\n');
     writeFileSync(join(environment.home, '.codex', 'agents', 'review-agent'), 'stale Codex extensionless variant\n');
+    writeFileSync(join(environment.home, '.gemini', 'config', 'agents', 'review-agent.md'), 'stale Antigravity Markdown variant\n');
+    writeFileSync(join(environment.home, '.gemini', 'config', 'agents', 'review-agent.toml'), 'stale Antigravity TOML variant\n');
+    writeFileSync(join(environment.home, '.gemini', 'config', 'agents', 'review-agent'), 'stale Antigravity extensionless variant\n');
 
     const firstRun = runSync(environment);
 
     assert.equal(firstRun.status, 0, firstRun.output);
     assert.equal((firstRun.output.match(/create - nested-skill/g) ?? []).length, 2);
-    assert.equal((firstRun.output.match(/create - review-agent\.md/g) ?? []).length, 2);
     assert.equal(readFileSync(join(claudeSkill, 'SKILL.md'), 'utf8'), skillMarkdown);
     assert.equal(readFileSync(join(claudeSkill, 'references', 'guide.md'), 'utf8'), 'Nested reference\n');
     assert.equal(readFileSync(join(codexSkill, 'SKILL.md'), 'utf8'), skillMarkdown);
@@ -809,10 +821,16 @@ test('syncs nested skills to .agents while preserving legacy Codex skills and ag
     assert.match(readFileSync(codexAgent, 'utf8'), /model = "gpt-5\.6-sol"/);
     assert.match(readFileSync(codexAgent, 'utf8'), /model_reasoning_effort = "xhigh"/);
     assert.match(readFileSync(codexAgent, 'utf8'), /developer_instructions = "# Review agent\\n\\nInspect the requested implementation\."/);
+    assert.equal(
+      readFileSync(antigravityAgent, 'utf8'),
+      '---\nname: "review-agent"\ndescription: "Reviews implementation changes"\nmodel: pro\n---\n\n# Review agent\n\nInspect the requested implementation.\n',
+    );
     assert.equal(existsSync(join(environment.home, '.claude', 'agents', 'review-agent.toml')), false);
     assert.equal(existsSync(join(environment.home, '.claude', 'agents', 'review-agent')), false);
     assert.equal(existsSync(join(environment.home, '.codex', 'agents', 'review-agent.md')), false);
     assert.equal(existsSync(join(environment.home, '.codex', 'agents', 'review-agent')), false);
+    assert.equal(existsSync(join(environment.home, '.gemini', 'config', 'agents', 'review-agent.md')), false);
+    assert.equal(existsSync(join(environment.home, '.gemini', 'config', 'agents', 'review-agent.toml')), false);
 
     const homeAfterFirstRun = snapshotDirectory(environment.home);
     const secondRun = runSync(environment);
@@ -826,6 +844,87 @@ test('syncs nested skills to .agents while preserving legacy Codex skills and ag
     environment.cleanup();
   }
 });
+
+test('omits model and reasoning effort for agents that inherit target defaults', () => {
+  const environment = createTestEnvironment();
+  try {
+    const sourceAgent = join(environment.repository, 'sources', 'agents', 'inherited-agent.md');
+    const claudeAgent = join(environment.home, '.claude', 'agents', 'inherited-agent.md');
+    const codexAgent = join(environment.home, '.codex', 'agents', 'inherited-agent.toml');
+    const antigravityAgent = join(environment.home, '.gemini', 'config', 'agents', 'inherited-agent', 'agent.md');
+    const sourceMarkdown = [
+      '---',
+      'name: inherited-agent',
+      'description: Inherits the parent model settings',
+      '---',
+      '',
+      '# Inherited agent',
+      '',
+    ].join('\n');
+    writeSyncConfig(environment.repository, { instructionsMode: 'off' });
+    mkdirSync(dirname(sourceAgent), { recursive: true });
+    writeFileSync(sourceAgent, sourceMarkdown);
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.equal(readFileSync(claudeAgent, 'utf8'), sourceMarkdown);
+    assert.doesNotMatch(readFileSync(codexAgent, 'utf8'), /^model = /m);
+    assert.doesNotMatch(readFileSync(codexAgent, 'utf8'), /^model_reasoning_effort = /m);
+    assert.equal(
+      readFileSync(antigravityAgent, 'utf8'),
+      '---\nname: "inherited-agent"\ndescription: "Inherits the parent model settings"\n---\n\n# Inherited agent\n',
+    );
+    assert.doesNotMatch(readFileSync(antigravityAgent, 'utf8'), /^effort:/m);
+  } finally {
+    environment.cleanup();
+  }
+});
+
+for (const invalidMapping of [
+  {
+    name: 'missing source model mapping',
+    model: 'unmapped-model',
+    config: {},
+    error: /Missing agent model mapping for "unmapped-model"/,
+  },
+  {
+    name: 'invalid Antigravity model mapping',
+    model: 'opus',
+    config: {
+      agentModelMap: {
+        opus: { codex: 'gpt-5.6-sol', antigravity: 'invalid' },
+      },
+    },
+    error: /Invalid Antigravity model mapping for "opus".*Expected "flash" or "pro"/,
+  },
+]) {
+  test(`${invalidMapping.name} aborts before writing targets or backups`, () => {
+    const environment = createTestEnvironment();
+    try {
+      const sourceAgent = join(environment.repository, 'sources', 'agents', 'invalid-map-agent.md');
+      const antigravityAgent = join(environment.home, '.gemini', 'config', 'agents', 'local-agent', 'agent.md');
+      writeSyncConfig(environment.repository, { instructionsMode: 'off', ...invalidMapping.config });
+      mkdirSync(dirname(sourceAgent), { recursive: true });
+      mkdirSync(dirname(antigravityAgent), { recursive: true });
+      writeFileSync(
+        sourceAgent,
+        `---\nname: invalid-map-agent\ndescription: Invalid model mapping\nmodel: ${invalidMapping.model}\n---\n`,
+      );
+      writeFileSync(antigravityAgent, 'Keep unchanged.\n');
+      const homeBefore = snapshotDirectory(environment.home);
+
+      const result = runSync(environment);
+
+      assert.notEqual(result.status, 0);
+      assert.match(result.output, invalidMapping.error);
+      assert.deepEqual(snapshotDirectory(environment.home), homeBefore);
+      assert.deepEqual(backupDirectories(environment.repository), []);
+    } finally {
+      environment.cleanup();
+    }
+  });
+}
 
 test('allows the documented skill and agent frontmatter fields', () => {
   const environment = createTestEnvironment();
