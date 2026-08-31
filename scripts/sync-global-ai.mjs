@@ -78,6 +78,11 @@ const TARGETS = {
     root: join(home, '.gemini', 'config'),
     agents: join(home, '.gemini', 'config', 'agents'),
   },
+  antigravityInstructions: {
+    root: join(home, '.gemini'),
+    geminiMd: join(home, '.gemini', 'GEMINI.md'),
+    geminiSyncMd: join(home, '.gemini', 'GEMINI-sync.md'),
+  },
   antigravitySkills: {
     root: join(home, '.gemini', 'antigravity-cli'),
     skills: join(home, '.gemini', 'antigravity-cli', 'skills'),
@@ -87,6 +92,7 @@ const TARGETS = {
 const BACKUP_SPECS = [
   { source: TARGETS.codex.agentsMd, destination: join('.codex', 'AGENTS.md') },
   { source: TARGETS.claude.claudeMd, destination: join('.claude', 'CLAUDE.md') },
+  { source: TARGETS.antigravityInstructions.geminiMd, destination: join('.gemini', 'GEMINI.md') },
   { source: TARGETS.claude.skills, destination: join('.claude', 'skills') },
   { source: TARGETS.codexSkills.skills, destination: join('.agents', 'skills') },
   { source: TARGETS.claude.agents, destination: join('.claude', 'agents') },
@@ -180,10 +186,12 @@ function instructionSpecsForMode(mode) {
       ? {
           codex: TARGETS.codex.agentsMd,
           claude: TARGETS.claude.claudeMd,
+          antigravity: TARGETS.antigravityInstructions.geminiMd,
         }
       : {
           codex: TARGETS.codex.agentsSyncMd,
           claude: TARGETS.claude.claudeSyncMd,
+          antigravity: TARGETS.antigravityInstructions.geminiSyncMd,
         };
 
   return [
@@ -198,6 +206,12 @@ function instructionSpecsForMode(mode) {
       source: join(SOURCE_ROOT, 'CLAUDE.md'),
       target: TARGETS.claude,
       destination: destinations.claude,
+    },
+    {
+      name: 'GEMINI.md',
+      source: join(SOURCE_ROOT, 'GEMINI.md'),
+      target: TARGETS.antigravityInstructions,
+      destination: destinations.antigravity,
     },
   ];
 }

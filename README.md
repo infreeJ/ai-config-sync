@@ -39,6 +39,7 @@ npm run sync:dry
 sources/
   AGENTS.md       # Codex 지시문 원본
   CLAUDE.md       # Claude 지시문 원본
+  GEMINI.md       # Antigravity CLI 지시문 원본
   agents/         # Claude 기준 Markdown agent 원본
   skills/         # 세 도구에 공유할 skill 디렉터리
 scripts/             # 스크립트 및 시스템 파일
@@ -51,10 +52,11 @@ sync.config.json      # 동기화 설정 파일
 | --- | --- | --- | --- |
 | `sources/CLAUDE.md` | 지시문 파일 | — | — |
 | `sources/AGENTS.md` | — | 지시문 파일 | — |
+| `sources/GEMINI.md` | — | — | 지시문 파일 |
 | `sources/skills/<name>/SKILL.md` | `~/.claude/skills/<name>/` | `~/.agents/skills/<name>/` | `~/.gemini/antigravity-cli/skills/<name>.md` |
 | `sources/agents/<name>.md` | `~/.claude/agents/<name>.md` | `~/.codex/agents/<name>.toml` | `~/.gemini/config/agents/<name>/agent.md` |
 
-`CLAUDE.md`와 `AGENTS.md`는 각각 Claude와 Codex에만 동기화합니다. Antigravity CLI의 컨텍스트 파일은 관리하지 않습니다.
+`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`는 각각 Claude, Codex, Antigravity CLI에만 동기화합니다.
 
 동일한 이름의 skill 또는 agent는 갱신하지만, 이름이 다른 전역 항목은 보존합니다. Codex에 포함된 `.system` skill도 관리 대상이 아닙니다.
 
@@ -64,7 +66,7 @@ sync.config.json      # 동기화 설정 파일
 
 백업에는 다음 항목이 존재하는 경우에만, 원래 디렉터리 구조를 유지해 저장합니다.
 
-- `~/.codex/AGENTS.md`, `~/.claude/CLAUDE.md`
+- `~/.codex/AGENTS.md`, `~/.claude/CLAUDE.md`, `~/.gemini/GEMINI.md`
 - `~/.claude/skills/`, `~/.agents/skills/`, `~/.gemini/antigravity-cli/skills/`
 - `~/.claude/agents/`, `~/.codex/agents/`, `~/.gemini/config/agents/`
 
@@ -102,9 +104,9 @@ git merge upstream/main
 | 모드 | 동작 |
 | --- | --- |
 | `append` (기본값) | 기존 전역 지시문의 관리 마커 블록에만 원본 지시문을 추가하거나 갱신합니다. |
-| `managed` | 기존 전역 지시문인 `~/.codex/AGENTS.md`, `~/.claude/CLAUDE.md`를 원본으로 교체합니다. |
+| `managed` | 기존 전역 지시문인 `~/.codex/AGENTS.md`, `~/.claude/CLAUDE.md`, `~/.gemini/GEMINI.md`를 원본으로 교체합니다. |
 | `off` | 지시문은 건너뛰고 skills와 agents만 동기화합니다. |
-| `sidecar` | `AGENTS-sync.md`, `CLAUDE-sync.md`만 씁니다. (실험적 옵션)|
+| `sidecar` | `AGENTS-sync.md`, `CLAUDE-sync.md`, `GEMINI-sync.md`만 씁니다. (실험적 옵션)|
 
 ### 1. `append`: 공유 설정과 로컬 설정 함께 관리
 
@@ -125,11 +127,11 @@ git merge upstream/main
 
 ### 3. `off`: 지시문 동기화 생략
 
-`off` 모드는 전역 지시문을 건드리지 않고 skills와 agents만 동기화합니다. Antigravity CLI에는 지시문 동기화가 없으므로 이 설정의 영향을 받지 않습니다.
+`off` 모드는 전역 지시문을 건드리지 않고 skills와 agents만 동기화합니다.
 
 ### 4. `sidecar`: 공유 설정과 로컬 설정 분리
 
-`sidecar` 모드는 기존 전역 지시문을 덮어쓰지 않고, 저장소의 지시문을 `AGENTS-sync.md`와 `CLAUDE-sync.md`로 별도 동기화합니다.
+`sidecar` 모드는 기존 전역 지시문을 덮어쓰지 않고, 저장소의 지시문을 `AGENTS-sync.md`, `CLAUDE-sync.md`, `GEMINI-sync.md`로 별도 동기화합니다.
 
 `-sync` 파일은 자동으로 포함되지 않으므로, 기존 전역 지시문에서 해당 파일을 참고하도록 한 번 연결해야 합니다.
 
@@ -137,7 +139,7 @@ git merge upstream/main
 Also review and follow the repository-managed instructions in ~/.codex/AGENTS-sync.md when they are relevant.
 ```
 
-Claude에서는 경로만 `~/.claude/CLAUDE-sync.md`로 바꾸면 됩니다.
+Claude에서는 경로를 `~/.claude/CLAUDE-sync.md`로, Antigravity CLI에서는 `~/.gemini/GEMINI-sync.md`로 바꾸면 됩니다.
 
 > `sidecar` 모드는 실험적 옵션이며, 사용은 권장하지 않습니다.
 

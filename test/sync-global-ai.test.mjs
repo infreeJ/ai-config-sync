@@ -112,6 +112,10 @@ test('init creates sources from the template without staging them', () => {
       readFileSync(join(environment.repository, 'sources', 'CLAUDE.md'), 'utf8'),
       readFileSync(join(environment.repository, 'scripts', 'templates', 'sources', 'CLAUDE.md'), 'utf8'),
     );
+    assert.equal(
+      readFileSync(join(environment.repository, 'sources', 'GEMINI.md'), 'utf8'),
+      readFileSync(join(environment.repository, 'scripts', 'templates', 'sources', 'GEMINI.md'), 'utf8'),
+    );
     assert.throws(() => {
       execFileSync('git', ['check-ignore', '--no-index', '--quiet', '--', 'sources/AGENTS.md'], {
         cwd: environment.repository,
@@ -175,6 +179,7 @@ test('init creates sources outside a Git work tree', () => {
 
     assert.equal(result.status, 0, result.output);
     assert.equal(existsSync(join(environment.repository, 'sources', 'AGENTS.md')), true);
+    assert.equal(existsSync(join(environment.repository, 'sources', 'GEMINI.md')), true);
   } finally {
     environment.cleanup();
   }
@@ -200,10 +205,13 @@ test('append mode preserves local instructions and creates then updates managed 
   try {
     const codexInstructions = join(environment.home, '.codex', 'AGENTS.md');
     const claudeInstructions = join(environment.home, '.claude', 'CLAUDE.md');
+    const geminiInstructions = join(environment.home, '.gemini', 'GEMINI.md');
     mkdirSync(join(environment.home, '.codex'));
     mkdirSync(join(environment.home, '.claude'));
+    mkdirSync(join(environment.home, '.gemini'));
     writeFileSync(codexInstructions, '## Local Codex instructions\nKeep this setting.');
     writeFileSync(claudeInstructions, '## Local Claude instructions\nKeep this setting.');
+    writeFileSync(geminiInstructions, '## Local Antigravity instructions\nKeep this setting.');
 
     const firstRun = runSync(environment);
     assert.equal(firstRun.status, 0, firstRun.output);
@@ -211,8 +219,10 @@ test('append mode preserves local instructions and creates then updates managed 
 
     const initialCodexContent = readFileSync(codexInstructions, 'utf8');
     const initialClaudeContent = readFileSync(claudeInstructions, 'utf8');
+    const initialGeminiContent = readFileSync(geminiInstructions, 'utf8');
     const initialCodexSource = readFileSync(join(environment.repository, 'sources', 'AGENTS.md'), 'utf8');
     const initialClaudeSource = readFileSync(join(environment.repository, 'sources', 'CLAUDE.md'), 'utf8');
+    const initialGeminiSource = readFileSync(join(environment.repository, 'sources', 'GEMINI.md'), 'utf8');
 
     assert.match(initialCodexContent, /^## Local Codex instructions\nKeep this setting\.\n/);
     assert.equal(markerCount(initialCodexContent, BEGIN_MARKER), 1);
@@ -226,11 +236,17 @@ test('append mode preserves local instructions and creates then updates managed 
     assert.equal(markerCount(initialClaudeContent, BEGIN_MARKER), 1);
     assert.equal(markerCount(initialClaudeContent, END_MARKER), 1);
     assert.match(initialClaudeContent, new RegExp(escapeRegExp(initialClaudeSource)));
+    assert.match(initialGeminiContent, /^## Local Antigravity instructions\nKeep this setting\.\n/);
+    assert.equal(markerCount(initialGeminiContent, BEGIN_MARKER), 1);
+    assert.equal(markerCount(initialGeminiContent, END_MARKER), 1);
+    assert.match(initialGeminiContent, new RegExp(escapeRegExp(initialGeminiSource)));
 
     const updatedCodexSource = '# Updated Codex source instructions\n\n- New managed content\n';
     const updatedClaudeSource = '# Updated Claude source instructions\n\n- New managed content\n';
+    const updatedGeminiSource = '# Updated Antigravity source instructions\n\n- New managed content\n';
     writeFileSync(join(environment.repository, 'sources', 'AGENTS.md'), updatedCodexSource);
     writeFileSync(join(environment.repository, 'sources', 'CLAUDE.md'), updatedClaudeSource);
+    writeFileSync(join(environment.repository, 'sources', 'GEMINI.md'), updatedGeminiSource);
 
     const secondRun = runSync(environment);
     assert.equal(secondRun.status, 0, secondRun.output);
@@ -241,6 +257,7 @@ test('append mode preserves local instructions and creates then updates managed 
 
     const updatedCodexContent = readFileSync(codexInstructions, 'utf8');
     const updatedClaudeContent = readFileSync(claudeInstructions, 'utf8');
+    const updatedGeminiContent = readFileSync(geminiInstructions, 'utf8');
     assert.match(updatedCodexContent, /^## Local Codex instructions\nKeep this setting\.\n/);
     assert.match(updatedCodexContent, new RegExp(escapeRegExp(updatedCodexSource)));
     assert.doesNotMatch(updatedCodexContent, new RegExp(escapeRegExp(initialCodexSource)));
@@ -251,6 +268,11 @@ test('append mode preserves local instructions and creates then updates managed 
     assert.doesNotMatch(updatedClaudeContent, new RegExp(escapeRegExp(initialClaudeSource)));
     assert.equal(markerCount(updatedClaudeContent, BEGIN_MARKER), 1);
     assert.equal(markerCount(updatedClaudeContent, END_MARKER), 1);
+    assert.match(updatedGeminiContent, /^## Local Antigravity instructions\nKeep this setting\.\n/);
+    assert.match(updatedGeminiContent, new RegExp(escapeRegExp(updatedGeminiSource)));
+    assert.doesNotMatch(updatedGeminiContent, new RegExp(escapeRegExp(initialGeminiSource)));
+    assert.equal(markerCount(updatedGeminiContent, BEGIN_MARKER), 1);
+    assert.equal(markerCount(updatedGeminiContent, END_MARKER), 1);
   } finally {
     environment.cleanup();
   }
@@ -270,6 +292,7 @@ test('append mode rejects malformed markers without writing instructions', () =>
     assert.match(result.output, /Malformed managed instruction markers/);
     assert.equal(readFileSync(codexInstructions, 'utf8'), malformedContent);
     assert.equal(existsSync(join(environment.home, '.claude', 'CLAUDE.md')), false);
+    assert.equal(existsSync(join(environment.home, '.gemini', 'GEMINI.md')), false);
   } finally {
     environment.cleanup();
   }
@@ -280,12 +303,15 @@ test('--dry-run does not create or modify isolated global paths', () => {
   try {
     const codexInstructions = join(environment.home, '.codex', 'AGENTS.md');
     const claudeInstructions = join(environment.home, '.claude', 'CLAUDE.md');
+    const geminiInstructions = join(environment.home, '.gemini', 'GEMINI.md');
     const codexContent = '## Existing Codex instructions\nKeep unchanged.\n';
     const claudeContent = '## Existing Claude instructions\nKeep unchanged.\n';
     mkdirSync(join(environment.home, '.codex'));
     mkdirSync(join(environment.home, '.claude'));
+    mkdirSync(join(environment.home, '.gemini'));
     writeFileSync(codexInstructions, codexContent);
     writeFileSync(claudeInstructions, claudeContent);
+    writeFileSync(geminiInstructions, '## Existing Antigravity instructions\nKeep unchanged.\n');
 
     const result = runSync(environment, ['--dry-run']);
 
@@ -293,6 +319,10 @@ test('--dry-run does not create or modify isolated global paths', () => {
     assert.match(result.output, /dry-run plan/);
     assert.equal(readFileSync(codexInstructions, 'utf8'), codexContent);
     assert.equal(readFileSync(claudeInstructions, 'utf8'), claudeContent);
+    assert.equal(
+      readFileSync(geminiInstructions, 'utf8'),
+      '## Existing Antigravity instructions\nKeep unchanged.\n',
+    );
     assert.deepEqual(backupDirectories(environment.repository), []);
   } finally {
     environment.cleanup();
@@ -304,6 +334,7 @@ test('sync backs up every global instruction, skill, and agent before applying c
   try {
     const codexInstructions = join(environment.home, '.codex', 'AGENTS.md');
     const claudeInstructions = join(environment.home, '.claude', 'CLAUDE.md');
+    const geminiInstructions = join(environment.home, '.gemini', 'GEMINI.md');
     const claudeSkill = join(environment.home, '.claude', 'skills', 'local-claude-skill');
     const codexSkill = join(environment.home, '.agents', 'skills', 'local-codex-skill');
     const claudeAgent = join(environment.home, '.claude', 'agents', 'local-agent.md');
@@ -312,6 +343,7 @@ test('sync backs up every global instruction, skill, and agent before applying c
     const antigravitySkill = join(environment.home, '.gemini', 'antigravity-cli', 'skills', 'local-antigravity-skill.md');
     const codexContent = '## Local Codex instructions\nPreserve this version.\n';
     const claudeContent = '## Local Claude instructions\nPreserve this version.\n';
+    const geminiContent = '## Local Antigravity instructions\nPreserve this version.\n';
 
     mkdirSync(join(claudeSkill, 'references'), { recursive: true });
     mkdirSync(codexSkill, { recursive: true });
@@ -321,6 +353,7 @@ test('sync backs up every global instruction, skill, and agent before applying c
     mkdirSync(dirname(antigravitySkill), { recursive: true });
     writeFileSync(codexInstructions, codexContent);
     writeFileSync(claudeInstructions, claudeContent);
+    writeFileSync(geminiInstructions, geminiContent);
     writeFileSync(join(claudeSkill, 'SKILL.md'), '# Local Claude skill\n');
     writeFileSync(join(claudeSkill, 'references', 'guide.md'), 'Claude skill reference\n');
     writeFileSync(join(codexSkill, 'SKILL.md'), '# Local Codex skill\n');
@@ -339,6 +372,7 @@ test('sync backs up every global instruction, skill, and agent before applying c
     const backup = join(environment.repository, 'backup', backups[0]);
     assert.equal(readFileSync(join(backup, '.codex', 'AGENTS.md'), 'utf8'), codexContent);
     assert.equal(readFileSync(join(backup, '.claude', 'CLAUDE.md'), 'utf8'), claudeContent);
+    assert.equal(readFileSync(join(backup, '.gemini', 'GEMINI.md'), 'utf8'), geminiContent);
     assert.equal(readFileSync(join(backup, '.claude', 'skills', 'local-claude-skill', 'SKILL.md'), 'utf8'), '# Local Claude skill\n');
     assert.equal(
       readFileSync(join(backup, '.claude', 'skills', 'local-claude-skill', 'references', 'guide.md'), 'utf8'),
@@ -685,7 +719,7 @@ test('summary excludes hidden target root setup', () => {
     const result = runSync(environment, ['--dry-run']);
 
     assert.equal(result.status, 0, result.output);
-    assert.match(result.output, /create: 2/);
+    assert.match(result.output, /create: 3/);
     assert.doesNotMatch(result.output, /Target roots/);
   } finally {
     environment.cleanup();
@@ -697,19 +731,24 @@ test('managed mode replaces complete global instruction files with their sources
   try {
     const codexInstructions = join(environment.home, '.codex', 'AGENTS.md');
     const claudeInstructions = join(environment.home, '.claude', 'CLAUDE.md');
+    const geminiInstructions = join(environment.home, '.gemini', 'GEMINI.md');
     const codexSource = readFileSync(join(environment.repository, 'sources', 'AGENTS.md'), 'utf8');
     const claudeSource = readFileSync(join(environment.repository, 'sources', 'CLAUDE.md'), 'utf8');
+    const geminiSource = readFileSync(join(environment.repository, 'sources', 'GEMINI.md'), 'utf8');
     writeSyncConfig(environment.repository, { instructionsMode: 'managed' });
     mkdirSync(join(environment.home, '.codex'));
     mkdirSync(join(environment.home, '.claude'));
+    mkdirSync(join(environment.home, '.gemini'));
     writeFileSync(codexInstructions, '## Local Codex instructions\nThis content is replaced.\n');
     writeFileSync(claudeInstructions, '## Local Claude instructions\nThis content is replaced.\n');
+    writeFileSync(geminiInstructions, '## Local Antigravity instructions\nThis content is replaced.\n');
 
     const result = runSync(environment);
 
     assert.equal(result.status, 0, result.output);
     assert.equal(readFileSync(codexInstructions, 'utf8'), codexSource);
     assert.equal(readFileSync(claudeInstructions, 'utf8'), claudeSource);
+    assert.equal(readFileSync(geminiInstructions, 'utf8'), geminiSource);
   } finally {
     environment.cleanup();
   }
@@ -719,6 +758,7 @@ test('off mode does not modify or create global instruction files', () => {
   for (const instructionCase of [
     { directory: '.codex', fileName: 'AGENTS.md', missingDirectory: '.claude', missingFileName: 'CLAUDE.md' },
     { directory: '.claude', fileName: 'CLAUDE.md', missingDirectory: '.codex', missingFileName: 'AGENTS.md' },
+    { directory: '.gemini', fileName: 'GEMINI.md', missingDirectory: '.codex', missingFileName: 'AGENTS.md' },
   ]) {
     const environment = createTestEnvironment();
     try {
@@ -745,6 +785,51 @@ test('off mode does not modify or create global instruction files', () => {
     } finally {
       environment.cleanup();
     }
+  }
+});
+
+test('sidecar mode preserves global instructions and writes all instruction sidecars', () => {
+  const environment = createTestEnvironment();
+  try {
+    const cases = [
+      {
+        source: 'AGENTS.md',
+        primary: join(environment.home, '.codex', 'AGENTS.md'),
+        sidecar: join(environment.home, '.codex', 'AGENTS-sync.md'),
+      },
+      {
+        source: 'CLAUDE.md',
+        primary: join(environment.home, '.claude', 'CLAUDE.md'),
+        sidecar: join(environment.home, '.claude', 'CLAUDE-sync.md'),
+      },
+      {
+        source: 'GEMINI.md',
+        primary: join(environment.home, '.gemini', 'GEMINI.md'),
+        sidecar: join(environment.home, '.gemini', 'GEMINI-sync.md'),
+      },
+    ];
+    writeSyncConfig(environment.repository, { instructionsMode: 'sidecar' });
+
+    for (const instructionCase of cases) {
+      mkdirSync(dirname(instructionCase.primary), { recursive: true });
+      writeFileSync(instructionCase.primary, `## Local ${instructionCase.source} instructions\nKeep unchanged.\n`);
+    }
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    for (const instructionCase of cases) {
+      assert.equal(
+        readFileSync(instructionCase.primary, 'utf8'),
+        `## Local ${instructionCase.source} instructions\nKeep unchanged.\n`,
+      );
+      assert.equal(
+        readFileSync(instructionCase.sidecar, 'utf8'),
+        readFileSync(join(environment.repository, 'sources', instructionCase.source), 'utf8'),
+      );
+    }
+  } finally {
+    environment.cleanup();
   }
 });
 
