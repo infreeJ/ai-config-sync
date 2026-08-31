@@ -3,22 +3,48 @@
   "preCommitSync": "off",
   "backup": "on",
   "backupRetentionCount": 10,
-  "codexAgentDefaults": {
-    "model": "gpt-5.6-terra",
-    "reasoningEffort": "high"
-  },
-  "codexAgentModelMap": {
+  "agentModelMap": {
     "opus": {
-      "model": "gpt-5.6-sol",
-      "reasoningEffort": "xhigh"
+      "claude": "opus",
+      "codex": "gpt-5.6-sol",
+      "antigravity": "pro"
     },
     "sonnet": {
-      "model": "gpt-5.6-terra",
-      "reasoningEffort": "high"
+      "claude": "sonnet",
+      "codex": "gpt-5.6-terra",
+      "antigravity": "pro"
     },
     "haiku": {
-      "model": "gpt-5.6-terra",
-      "reasoningEffort": "medium"
+      "claude": "haiku",
+      "codex": "gpt-5.6-luna",
+      "antigravity": "flash"
+    }
+  },
+  "agentEffortMap": {
+    "low": {
+      "claude": "low",
+      "codex": "low",
+      "antigravity": ""
+    },
+    "medium": {
+      "claude": "medium",
+      "codex": "medium",
+      "antigravity": ""
+    },
+    "high": {
+      "claude": "high",
+      "codex": "high",
+      "antigravity": ""
+    },
+    "xhigh": {
+      "claude": "xhigh",
+      "codex": "xhigh",
+      "antigravity": ""
+    },
+    "max": {
+      "claude": "max",
+      "codex": "max",
+      "antigravity": ""
     }
   }
 }
