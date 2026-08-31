@@ -16,5 +16,32 @@
       "codex": "gpt-5.6-terra",
       "antigravity": "flash"
     }
+  },
+  "agentEffortMap": {
+    "low": {
+      "claude": "low",
+      "codex": "low",
+      "antigravity": ""
+    },
+    "medium": {
+      "claude": "medium",
+      "codex": "medium",
+      "antigravity": ""
+    },
+    "high": {
+      "claude": "high",
+      "codex": "high",
+      "antigravity": ""
+    },
+    "xhigh": {
+      "claude": "xhigh",
+      "codex": "xhigh",
+      "antigravity": ""
+    },
+    "max": {
+      "claude": "max",
+      "codex": "max",
+      "antigravity": ""
+    }
   }
 }

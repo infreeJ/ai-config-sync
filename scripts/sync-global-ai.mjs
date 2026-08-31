@@ -49,6 +49,13 @@ const DEFAULT_CONFIG = {
     sonnet: { codex: 'gpt-5', antigravity: 'pro' },
     haiku: { codex: 'gpt-5', antigravity: 'flash' },
   },
+  agentEffortMap: {
+    low: { claude: 'low', codex: 'low', antigravity: '' },
+    medium: { claude: 'medium', codex: 'medium', antigravity: '' },
+    high: { claude: 'high', codex: 'high', antigravity: '' },
+    xhigh: { claude: 'xhigh', codex: 'xhigh', antigravity: '' },
+    max: { claude: 'max', codex: 'max', antigravity: '' },
+  },
 };
 
 const home = process.env.USERPROFILE || process.env.HOME;
@@ -113,6 +120,8 @@ const PRE_COMMIT_SYNC_MODES = new Set(['on', 'off']);
 const BACKUP_MODES = new Set(['on', 'off']);
 const SKILL_FRONTMATTER_FIELDS = new Set(['name', 'description']);
 const AGENT_FRONTMATTER_FIELDS = new Set(['name', 'description', 'model', 'effort']);
+const CLAUDE_REASONING_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+const CODEX_REASONING_EFFORTS = new Set(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
 const BACKUP_DIRECTORY_NAME = /^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)(?:-(\d+))?$/;
 let DRY_RUN = true;
 let stats;
@@ -154,6 +163,10 @@ function readConfig() {
     agentModelMap: {
       ...DEFAULT_CONFIG.agentModelMap,
       ...(userConfig.agentModelMap || {}),
+    },
+    agentEffortMap: {
+      ...DEFAULT_CONFIG.agentEffortMap,
+      ...(userConfig.agentEffortMap || {}),
     },
   };
 }
@@ -619,7 +632,7 @@ function validateSourceFrontmatter() {
       'agent',
       AGENT_FRONTMATTER_FIELDS,
     );
-    validateAgentModelMapping(frontmatter.meta, entry.path);
+    validateAgentMappings(frontmatter.meta, entry.path);
   }
 }
 
@@ -644,13 +657,60 @@ function validateAgentModelMapping(meta, sourcePath) {
   }
 }
 
+function validateAgentEffortMapping(meta, sourcePath) {
+  if (!meta.effort) return;
+
+  if (!CLAUDE_REASONING_EFFORTS.has(meta.effort)) {
+    throw new Error(
+      `Invalid source reasoning effort "${meta.effort}" in ${sourcePath}. Expected one of: ${[...CLAUDE_REASONING_EFFORTS].join(', ')}.`,
+    );
+  }
+  const mapped = config.agentEffortMap[meta.effort];
+  if (!mapped || typeof mapped !== 'object') {
+    throw new Error(`Missing agent reasoning effort mapping for "${meta.effort}" in ${sourcePath}.`);
+  }
+  if (typeof mapped.claude !== 'string' || mapped.claude === '') {
+    throw new Error(`Missing Claude reasoning effort mapping for "${meta.effort}" in ${sourcePath}.`);
+  }
+  if (!CLAUDE_REASONING_EFFORTS.has(mapped.claude)) {
+    throw new Error(
+      `Invalid Claude reasoning effort mapping for "${meta.effort}" in ${sourcePath}. Expected one of: ${[...CLAUDE_REASONING_EFFORTS].join(', ')}.`,
+    );
+  }
+  if (typeof mapped.codex !== 'string' || mapped.codex === '') {
+    throw new Error(`Missing Codex reasoning effort mapping for "${meta.effort}" in ${sourcePath}.`);
+  }
+  if (!CODEX_REASONING_EFFORTS.has(mapped.codex)) {
+    throw new Error(
+      `Invalid Codex reasoning effort mapping for "${meta.effort}" in ${sourcePath}. Expected one of: ${[...CODEX_REASONING_EFFORTS].join(', ')}.`,
+    );
+  }
+}
+
+function validateAgentMappings(meta, sourcePath) {
+  validateAgentModelMapping(meta, sourcePath);
+  validateAgentEffortMapping(meta, sourcePath);
+}
+
 function agentModelMapping(meta) {
   return meta.model ? config.agentModelMap[meta.model] : undefined;
+}
+
+function agentEffortMapping(meta) {
+  return meta.effort ? config.agentEffortMap[meta.effort] : undefined;
+}
+
+function claudeAgentMarkdown(markdown) {
+  const { meta } = parseFrontmatter(markdown);
+  const mappedEffort = agentEffortMapping(meta);
+  if (!mappedEffort) return markdown;
+  return markdown.replace(/^(\s*effort\s*:\s*).+$/m, `$1${mappedEffort.claude}`);
 }
 
 function codexAgentToml(name, markdown) {
   const { meta, body } = parseFrontmatter(markdown);
   const mapped = agentModelMapping(meta);
+  const mappedEffort = agentEffortMapping(meta);
   const description = meta.description || '';
   const instructions = body.replace(/^\r?\n+/, '').replace(/\s+$/, '');
 
@@ -660,7 +720,7 @@ function codexAgentToml(name, markdown) {
     `description = ${tomlString(description)}`,
   ];
   if (mapped) lines.push(`model = ${tomlString(mapped.codex)}`);
-  if (meta.effort) lines.push(`model_reasoning_effort = ${tomlString(meta.effort)}`);
+  if (mappedEffort) lines.push(`model_reasoning_effort = ${tomlString(mappedEffort.codex)}`);
   lines.push(`developer_instructions = ${tomlString(instructions)}`, '');
   return lines.join('\n');
 }
@@ -760,7 +820,7 @@ function syncMarkdownAgent(entry) {
   ensureTargetRoot(TARGETS.claude);
   const claudeDestination = join(TARGETS.claude.agents, `${name}.md`);
   clearAgentName(TARGETS.claude, name, claudeDestination);
-  writeFile(claudeDestination, markdown, TARGETS.claude.root, {
+  writeFile(claudeDestination, claudeAgentMarkdown(markdown), TARGETS.claude.root, {
     section: 'agents',
     label: entry.name,
   });

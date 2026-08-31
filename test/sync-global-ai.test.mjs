@@ -851,7 +851,7 @@ test('syncs nested skills to .agents while preserving legacy Codex skills and ag
       'name: review-agent',
       'description: Reviews implementation changes',
       'model: opus',
-      'effort: xhigh',
+      'effort: max',
       '---',
       '',
       '# Review agent',
@@ -927,7 +927,7 @@ test('syncs nested skills to .agents while preserving legacy Codex skills and ag
     assert.match(readFileSync(codexAgent, 'utf8'), /name = "review-agent"/);
     assert.match(readFileSync(codexAgent, 'utf8'), /description = "Reviews implementation changes"/);
     assert.match(readFileSync(codexAgent, 'utf8'), /model = "gpt-5\.6-sol"/);
-    assert.match(readFileSync(codexAgent, 'utf8'), /model_reasoning_effort = "xhigh"/);
+    assert.match(readFileSync(codexAgent, 'utf8'), /model_reasoning_effort = "max"/);
     assert.match(readFileSync(codexAgent, 'utf8'), /developer_instructions = "# Review agent\\n\\nInspect the requested implementation\."/);
     assert.equal(
       readFileSync(antigravityAgent, 'utf8'),
@@ -989,22 +989,119 @@ test('omits model and reasoning effort for agents that inherit target defaults',
   }
 });
 
+test('maps agent reasoning effort for Claude and Codex independently', () => {
+  const environment = createTestEnvironment();
+  try {
+    const sourceAgent = join(environment.repository, 'sources', 'agents', 'mapped-effort-agent.md');
+    const claudeAgent = join(environment.home, '.claude', 'agents', 'mapped-effort-agent.md');
+    const codexAgent = join(environment.home, '.codex', 'agents', 'mapped-effort-agent.toml');
+    const antigravityAgent = join(environment.home, '.gemini', 'config', 'agents', 'mapped-effort-agent', 'agent.md');
+    const sourceMarkdown = [
+      '---',
+      'name: mapped-effort-agent',
+      'description: Maps effort independently for each target',
+      'effort: high',
+      '---',
+      '',
+      '# Mapped effort agent',
+      '',
+    ].join('\n');
+    writeSyncConfig(environment.repository, {
+      instructionsMode: 'off',
+      agentEffortMap: {
+        high: { claude: 'xhigh', codex: 'none', antigravity: '' },
+      },
+    });
+    mkdirSync(dirname(sourceAgent), { recursive: true });
+    writeFileSync(sourceAgent, sourceMarkdown);
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(readFileSync(claudeAgent, 'utf8'), /^effort: xhigh$/m);
+    assert.match(readFileSync(codexAgent, 'utf8'), /model_reasoning_effort = "none"/);
+    assert.doesNotMatch(readFileSync(antigravityAgent, 'utf8'), /^effort:/m);
+  } finally {
+    environment.cleanup();
+  }
+});
+
 for (const invalidMapping of [
   {
     name: 'missing source model mapping',
-    model: 'unmapped-model',
+    frontmatter: 'model: unmapped-model',
     config: {},
     error: /Missing agent model mapping for "unmapped-model"/,
   },
   {
+    name: 'missing Codex model mapping',
+    frontmatter: 'model: opus',
+    config: {
+      agentModelMap: {
+        opus: { antigravity: 'pro' },
+      },
+    },
+    error: /Missing Codex model mapping for "opus"/,
+  },
+  {
     name: 'invalid Antigravity model mapping',
-    model: 'opus',
+    frontmatter: 'model: opus',
     config: {
       agentModelMap: {
         opus: { codex: 'gpt-5.6-sol', antigravity: 'invalid' },
       },
     },
     error: /Invalid Antigravity model mapping for "opus".*Expected "flash" or "pro"/,
+  },
+  {
+    name: 'missing source reasoning effort mapping',
+    frontmatter: 'effort: max',
+    config: {
+      agentEffortMap: {
+        max: null,
+      },
+    },
+    error: /Missing agent reasoning effort mapping for "max"/,
+  },
+  {
+    name: 'invalid source reasoning effort',
+    frontmatter: 'effort: unmapped-effort',
+    config: {
+      agentEffortMap: {
+        'unmapped-effort': { claude: 'high', codex: 'high' },
+      },
+    },
+    error: /Invalid source reasoning effort "unmapped-effort".*Expected one of: low, medium, high, xhigh, max/,
+  },
+  {
+    name: 'missing Claude reasoning effort mapping',
+    frontmatter: 'effort: max',
+    config: {
+      agentEffortMap: {
+        max: { codex: 'max' },
+      },
+    },
+    error: /Missing Claude reasoning effort mapping for "max"/,
+  },
+  {
+    name: 'invalid Claude reasoning effort mapping',
+    frontmatter: 'effort: max',
+    config: {
+      agentEffortMap: {
+        max: { claude: 'invalid', codex: 'max' },
+      },
+    },
+    error: /Invalid Claude reasoning effort mapping for "max".*Expected one of: low, medium, high, xhigh, max/,
+  },
+  {
+    name: 'invalid Codex reasoning effort mapping',
+    frontmatter: 'effort: max',
+    config: {
+      agentEffortMap: {
+        max: { claude: 'max', codex: 'invalid' },
+      },
+    },
+    error: /Invalid Codex reasoning effort mapping for "max".*Expected one of: none, low, medium, high, xhigh, max/,
   },
 ]) {
   test(`${invalidMapping.name} aborts before writing targets or backups`, () => {
@@ -1017,7 +1114,7 @@ for (const invalidMapping of [
       mkdirSync(dirname(antigravityAgent), { recursive: true });
       writeFileSync(
         sourceAgent,
-        `---\nname: invalid-map-agent\ndescription: Invalid model mapping\nmodel: ${invalidMapping.model}\n---\n`,
+        `---\nname: invalid-map-agent\ndescription: Invalid mapping\n${invalidMapping.frontmatter}\n---\n`,
       );
       writeFileSync(antigravityAgent, 'Keep unchanged.\n');
       const homeBefore = snapshotDirectory(environment.home);
@@ -1047,7 +1144,7 @@ test('allows the documented skill and agent frontmatter fields', () => {
     );
     writeFileSync(
       join(agentDirectory, 'documented-agent.md'),
-      '---\nname: documented-agent\ndescription: Uses all shared agent metadata\nmodel: opus\neffort: xhigh\n---\n\n# Documented agent\n',
+      '---\nname: documented-agent\ndescription: Uses all shared agent metadata\nmodel: opus\neffort: max\n---\n\n# Documented agent\n',
     );
 
     const result = runSync(environment);
@@ -1072,7 +1169,7 @@ test('parses inline comments and quoted scalar frontmatter values', () => {
     );
     writeFileSync(
       join(agentDirectory, 'quoted-agent.md'),
-      '---\nname: "quoted-agent" # source name\ndescription: "Reviews \\"quoted\\" changes # safely" # source description\nmodel: "opus" # source model\neffort: \'xhigh\' # source effort\n---\n\n# Quoted agent\n',
+      '---\nname: "quoted-agent" # source name\ndescription: "Reviews \\"quoted\\" changes # safely" # source description\nmodel: "opus" # source model\neffort: \'max\' # source effort\n---\n\n# Quoted agent\n',
     );
 
     const result = runSync(environment);
