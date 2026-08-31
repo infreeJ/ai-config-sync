@@ -1,6 +1,6 @@
 # ai-config-sync
 
-`ai-config-sync`는 Claude와 Codex에서 함께 쓰는 전역 지시문, 스킬, 에이전트를 한 저장소에서 관리하고 필요할 때 동기화하는 도구입니다. 전역 디렉터리(`~/.claude`, `~/.codex`, `~/.agents`)를 직접 수정하지 않고 `sources/`를 원본으로 사용합니다.
+`ai-config-sync`는 Claude, Codex, Antigravity CLI에서 쓰는 전역 설정을 한 저장소에서 관리하고 필요할 때 동기화하는 도구입니다. 전역 디렉터리(`~/.claude`, `~/.codex`, `~/.agents`, `~/.gemini`)를 직접 수정하지 않고 `sources/`를 원본으로 사용합니다.
 
 <br>
 
@@ -39,20 +39,22 @@ npm run sync:dry
 sources/
   AGENTS.md       # Codex 지시문 원본
   CLAUDE.md       # Claude 지시문 원본
-  agents/         # Claude용 Markdown agent 원본
-  skills/         # 두 도구에 공유할 skill 디렉터리
+  agents/         # Claude 기준 Markdown agent 원본
+  skills/         # 세 도구에 공유할 skill 디렉터리
 scripts/             # 스크립트 및 시스템 파일
 sync.config.json      # 동기화 설정 파일
 ```
 
 `sources/`는 사용자의 개인 원본입니다. 설정은 항상 이 디렉터리에서 수정하세요.
 
-| 원본 | Claude | Codex |
-| --- | --- | --- |
-| `sources/CLAUDE.md` | 지시문 파일 | — |
-| `sources/AGENTS.md` | — | 지시문 파일 |
-| `sources/skills/<name>/` | `~/.claude/skills/<name>/` | `~/.agents/skills/<name>/` |
-| `sources/agents/<name>.md` | `~/.claude/agents/<name>.md` | `~/.codex/agents/<name>.toml` |
+| 원본 | Claude | Codex | Antigravity CLI |
+| --- | --- | --- | --- |
+| `sources/CLAUDE.md` | 지시문 파일 | — | — |
+| `sources/AGENTS.md` | — | 지시문 파일 | — |
+| `sources/skills/<name>/SKILL.md` | `~/.claude/skills/<name>/` | `~/.agents/skills/<name>/` | `~/.gemini/antigravity-cli/skills/<name>.md` |
+| `sources/agents/<name>.md` | `~/.claude/agents/<name>.md` | `~/.codex/agents/<name>.toml` | `~/.gemini/config/agents/<name>/agent.md` |
+
+`CLAUDE.md`와 `AGENTS.md`는 각각 Claude와 Codex에만 동기화합니다. Antigravity CLI의 컨텍스트 파일은 관리하지 않습니다.
 
 동일한 이름의 skill 또는 agent는 갱신하지만, 이름이 다른 전역 항목은 보존합니다. Codex에 포함된 `.system` skill도 관리 대상이 아닙니다.
 
@@ -63,8 +65,8 @@ sync.config.json      # 동기화 설정 파일
 백업에는 다음 항목이 존재하는 경우에만, 원래 디렉터리 구조를 유지해 저장합니다.
 
 - `~/.codex/AGENTS.md`, `~/.claude/CLAUDE.md`
-- `~/.claude/skills/`, `~/.agents/skills/`
-- `~/.claude/agents/`, `~/.codex/agents/`
+- `~/.claude/skills/`, `~/.agents/skills/`, `~/.gemini/antigravity-cli/skills/`
+- `~/.claude/agents/`, `~/.codex/agents/`, `~/.gemini/config/agents/`
 
 `backupRetentionCount`는 보존할 최신 백업 개수이며 기본값은 `10`입니다. 새 백업을 성공적으로 만든 뒤 설정값을 초과한 도구 생성 백업은 폴더 이름의 생성 시각순으로 가장 오래된 것부터 삭제합니다. 폴더의 수정 시각 같은 파일 시스템 메타데이터는 사용하지 않습니다.
 
@@ -123,7 +125,7 @@ git merge upstream/main
 
 ### 3. `off`: 지시문 동기화 생략
 
-`off` 모드는 전역 지시문을 건드리지 않고 skills와 agents만 동기화합니다.
+`off` 모드는 전역 지시문을 건드리지 않고 skills와 agents만 동기화합니다. Antigravity CLI에는 지시문 동기화가 없으므로 이 설정의 영향을 받지 않습니다.
 
 ### 4. `sidecar`: 공유 설정과 로컬 설정 분리
 
@@ -143,21 +145,41 @@ Claude에서는 경로만 `~/.claude/CLAUDE-sync.md`로 바꾸면 됩니다.
 
 ## 원본 작성법
 
-스킬은 `sources/skills/<skill-name>/`에 두고, 중심 지시문을 `SKILL.md`에 작성합니다. 필요한 보조 파일도 같은 디렉터리에 둡니다.
+스킬은 `sources/skills/<skill-name>/`에 두고, 중심 지시문을 `SKILL.md`에 작성합니다. 스킬 프론트매터에는 `name`, `description`만 쓸 수 있습니다. 필요한 보조 파일도 같은 디렉터리에 둘 수 있으며 Claude와 Codex에는 함께 복사됩니다. Antigravity CLI에는 `SKILL.md`만 동기화되므로 보조 파일은 사용할 수 없습니다.
 
-에이전트는 `sources/agents/<agent-name>.md`에 작성합니다.
+에이전트는 `sources/agents/<agent-name>.md`에 Claude 기준으로 작성합니다. 에이전트 프론트매터에는 `name`, `description`, `model`, `effort`만 쓸 수 있습니다.
 
 ```md
 ---
 name: example-agent
 description: Handles a specific workflow
 model: sonnet
+effort: high
 ---
 
 Agent instructions go here.
 ```
 
-Claude에는 Markdown이 그대로 복사되고, Codex에는 TOML로 변환됩니다. `model` 값은 `sync.config.json`의 `codexAgentModelMap`으로 매핑하며, 없는 값은 `codexAgentDefaults`를 사용합니다.
+`model`과 `effort`는 선택 사항입니다. 생략하면 세 도구 모두 해당 필드를 출력하지 않아 부모 또는 기본 설정을 상속합니다.
+
+- Claude는 원본 Markdown을 그대로 사용하므로 `model`, `effort`를 그대로 받습니다.
+- Codex는 `model`을 대상 모델로 바꾸고 `effort`를 `model_reasoning_effort`로 변환합니다.
+- Antigravity CLI는 대상 모델만 받고 `effort`는 출력하지 않습니다.
+
+`sync.config.json`의 `agentModelMap`에서 Claude 원본 모델을 Codex와 Antigravity CLI 모델로 매핑합니다. Antigravity CLI 모델은 `flash` 또는 `pro`만 사용할 수 있습니다.
+
+```json
+{
+  "agentModelMap": {
+    "sonnet": {
+      "codex": "gpt-5.6-terra",
+      "antigravity": "pro"
+    }
+  }
+}
+```
+
+이전 설정의 `codexAgentDefaults`, `codexAgentModelMap`은 더 이상 사용하지 않습니다. 두 키를 제거하고 필요한 모델마다 `agentModelMap` 항목을 추가하세요. 원본 에이전트에 `model`을 썼다면 해당 모델의 Codex와 Antigravity CLI 매핑은 모두 필요합니다.
 
 <br>
 
@@ -184,4 +206,4 @@ git config core.hooksPath scripts/hooks
 - 수정은 항상 `sources/`에서만 합니다.
 - 적용 전에는 `npm run sync:dry`로 계획을 확인합니다.
 - 기본 `append` 모드는 관리 마커 블록 밖의 기존 전역 지시문을 보존합니다.
-- 스크립트는 Claude/Codex의 지정 전역 루트 밖으로 쓰지 않도록 경로를 검증합니다.
+- 스크립트는 Claude, Codex, Antigravity CLI의 지정 전역 루트 밖으로 쓰지 않도록 경로를 검증합니다.
