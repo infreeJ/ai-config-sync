@@ -309,6 +309,7 @@ test('sync backs up every global instruction, skill, and agent before applying c
     const claudeAgent = join(environment.home, '.claude', 'agents', 'local-agent.md');
     const codexAgent = join(environment.home, '.codex', 'agents', 'local-agent.toml');
     const antigravityAgent = join(environment.home, '.gemini', 'config', 'agents', 'local-agent', 'agent.md');
+    const antigravitySkill = join(environment.home, '.gemini', 'antigravity-cli', 'skills', 'local-antigravity-skill.md');
     const codexContent = '## Local Codex instructions\nPreserve this version.\n';
     const claudeContent = '## Local Claude instructions\nPreserve this version.\n';
 
@@ -317,6 +318,7 @@ test('sync backs up every global instruction, skill, and agent before applying c
     mkdirSync(dirname(claudeAgent), { recursive: true });
     mkdirSync(dirname(codexAgent), { recursive: true });
     mkdirSync(dirname(antigravityAgent), { recursive: true });
+    mkdirSync(dirname(antigravitySkill), { recursive: true });
     writeFileSync(codexInstructions, codexContent);
     writeFileSync(claudeInstructions, claudeContent);
     writeFileSync(join(claudeSkill, 'SKILL.md'), '# Local Claude skill\n');
@@ -325,6 +327,7 @@ test('sync backs up every global instruction, skill, and agent before applying c
     writeFileSync(claudeAgent, 'Local Claude agent\n');
     writeFileSync(codexAgent, 'Local Codex agent\n');
     writeFileSync(antigravityAgent, 'Local Antigravity agent\n');
+    writeFileSync(antigravitySkill, 'Local Antigravity skill\n');
 
     const result = runSync(environment);
 
@@ -347,6 +350,10 @@ test('sync backs up every global instruction, skill, and agent before applying c
     assert.equal(
       readFileSync(join(backup, '.gemini', 'config', 'agents', 'local-agent', 'agent.md'), 'utf8'),
       'Local Antigravity agent\n',
+    );
+    assert.equal(
+      readFileSync(join(backup, '.gemini', 'antigravity-cli', 'skills', 'local-antigravity-skill.md'), 'utf8'),
+      'Local Antigravity skill\n',
     );
   } finally {
     environment.cleanup();
@@ -748,6 +755,8 @@ test('syncs nested skills to .agents while preserving legacy Codex skills and ag
     const sourceAgent = join(environment.repository, 'sources', 'agents', 'review-agent.md');
     const claudeSkill = join(environment.home, '.claude', 'skills', 'nested-skill');
     const codexSkill = join(environment.home, '.agents', 'skills', 'nested-skill');
+    const antigravitySkill = join(environment.home, '.gemini', 'antigravity-cli', 'skills', 'nested-skill.md');
+    const staleAntigravitySkill = join(environment.home, '.gemini', 'antigravity-cli', 'skills', 'nested-skill');
     const legacyCodexSkill = join(environment.home, '.codex', 'skills', 'nested-skill');
     const claudeAgent = join(environment.home, '.claude', 'agents', 'review-agent.md');
     const codexAgent = join(environment.home, '.codex', 'agents', 'review-agent.toml');
@@ -783,9 +792,16 @@ test('syncs nested skills to .agents while preserving legacy Codex skills and ag
     mkdirSync(join(environment.home, '.claude', 'agents'), { recursive: true });
     mkdirSync(join(environment.home, '.codex', 'agents'), { recursive: true });
     mkdirSync(join(environment.home, '.gemini', 'config', 'agents'), { recursive: true });
+    mkdirSync(staleAntigravitySkill, { recursive: true });
+    mkdirSync(join(environment.home, '.gemini', 'antigravity-cli', 'skills', 'preserved-skill'), { recursive: true });
     mkdirSync(join(environment.repository, 'sources', 'agents'), { recursive: true });
     writeFileSync(join(sourceSkill, 'SKILL.md'), skillMarkdown);
     writeFileSync(join(sourceSkill, 'references', 'guide.md'), 'Nested reference\n');
+    writeFileSync(join(staleAntigravitySkill, 'SKILL.md'), 'Stale Antigravity nested skill\n');
+    writeFileSync(
+      join(environment.home, '.gemini', 'antigravity-cli', 'skills', 'preserved-skill', 'SKILL.md'),
+      'Antigravity local skill\n',
+    );
     writeFileSync(join(environment.home, '.claude', 'skills', 'preserved-skill', 'SKILL.md'), 'Claude local skill\n');
     writeFileSync(join(legacyCodexSkill, 'SKILL.md'), 'Legacy Codex nested skill\n');
     writeFileSync(join(environment.home, '.codex', 'skills', 'preserved-skill', 'SKILL.md'), 'Codex local skill\n');
@@ -806,6 +822,13 @@ test('syncs nested skills to .agents while preserving legacy Codex skills and ag
     assert.equal(readFileSync(join(claudeSkill, 'references', 'guide.md'), 'utf8'), 'Nested reference\n');
     assert.equal(readFileSync(join(codexSkill, 'SKILL.md'), 'utf8'), skillMarkdown);
     assert.equal(readFileSync(join(codexSkill, 'references', 'guide.md'), 'utf8'), 'Nested reference\n');
+    assert.equal(readFileSync(antigravitySkill, 'utf8'), skillMarkdown);
+    assert.equal(existsSync(join(environment.home, '.gemini', 'antigravity-cli', 'skills', 'nested-skill', 'references')), false);
+    assert.equal(existsSync(staleAntigravitySkill), false);
+    assert.equal(
+      readFileSync(join(environment.home, '.gemini', 'antigravity-cli', 'skills', 'preserved-skill', 'SKILL.md'), 'utf8'),
+      'Antigravity local skill\n',
+    );
     assert.equal(readFileSync(join(legacyCodexSkill, 'SKILL.md'), 'utf8'), 'Legacy Codex nested skill\n');
     assert.equal(
       readFileSync(join(environment.home, '.claude', 'skills', 'preserved-skill', 'SKILL.md'), 'utf8'),

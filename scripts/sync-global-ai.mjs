@@ -78,6 +78,10 @@ const TARGETS = {
     root: join(home, '.gemini', 'config'),
     agents: join(home, '.gemini', 'config', 'agents'),
   },
+  antigravitySkills: {
+    root: join(home, '.gemini', 'antigravity-cli'),
+    skills: join(home, '.gemini', 'antigravity-cli', 'skills'),
+  },
 };
 
 const BACKUP_SPECS = [
@@ -88,6 +92,10 @@ const BACKUP_SPECS = [
   { source: TARGETS.claude.agents, destination: join('.claude', 'agents') },
   { source: TARGETS.codex.agents, destination: join('.codex', 'agents') },
   { source: TARGETS.antigravity.agents, destination: join('.gemini', 'config', 'agents') },
+  {
+    source: TARGETS.antigravitySkills.skills,
+    destination: join('.gemini', 'antigravity-cli', 'skills'),
+  },
 ];
 
 const HEADER = 'AUTO-GENERATED from ai-config-sync. Edit the source under sources/.';
@@ -665,6 +673,27 @@ function replaceSkill(name, sourceDir, target) {
   copyDirectory(sourceDir, destination, target.root);
 }
 
+function clearAntigravitySkillName(name, keepPath) {
+  for (const candidate of [
+    join(TARGETS.antigravitySkills.skills, name),
+    join(TARGETS.antigravitySkills.skills, `${name}.toml`),
+  ]) {
+    if (!existsSync(candidate)) continue;
+    if (resolve(candidate) === resolve(keepPath)) continue;
+    recordOperation('skills', 'overwrite', `stale ${basename(candidate)}`, candidate);
+    removeIfExists(candidate, TARGETS.antigravitySkills.root);
+  }
+}
+
+function replaceAntigravitySkill(name, sourceFile) {
+  const destination = join(TARGETS.antigravitySkills.skills, `${name}.md`);
+  clearAntigravitySkillName(name, destination);
+  writeFile(destination, readFileSync(sourceFile, 'utf8'), TARGETS.antigravitySkills.root, {
+    section: 'skills',
+    label: name,
+  });
+}
+
 function syncSkills() {
   let count = 0;
   for (const entry of listEntries(SOURCE_SKILLS)) {
@@ -676,6 +705,12 @@ function syncSkills() {
     for (const target of [TARGETS.claude, TARGETS.codexSkills]) {
       ensureTargetRoot(target);
       replaceSkill(entry.name, entry.path, target);
+    }
+
+    const sourceSkillFile = join(entry.path, 'SKILL.md');
+    if (existsSync(sourceSkillFile) && statSync(sourceSkillFile).isFile()) {
+      ensureTargetRoot(TARGETS.antigravitySkills);
+      replaceAntigravitySkill(entry.name, sourceSkillFile);
     }
     count += 1;
   }
