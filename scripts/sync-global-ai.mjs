@@ -96,6 +96,8 @@ const MANAGED_INSTRUCTION_SOURCE = `<!-- AUTO-GENERATED from ${SOURCE_ROOT} -->`
 const INSTRUCTION_MODES = new Set(['append', 'off', 'sidecar', 'managed']);
 const PRE_COMMIT_SYNC_MODES = new Set(['on', 'off']);
 const BACKUP_MODES = new Set(['on', 'off']);
+const SKILL_FRONTMATTER_FIELDS = new Set(['name', 'description']);
+const AGENT_FRONTMATTER_FIELDS = new Set(['name', 'description', 'model', 'effort']);
 const BACKUP_DIRECTORY_NAME = /^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)(?:-(\d+))?$/;
 let DRY_RUN = true;
 let stats;
@@ -486,16 +488,114 @@ function syncInstructions() {
   return count;
 }
 
-function parseFrontmatter(text) {
-  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
-  if (!match) return { meta: {}, body: text };
+function parseQuotedScalar(rawValue, quote, sourcePath, lineNumber) {
+  let value = '';
+  let doubleQuotedLiteral = quote;
+  let index = 1;
+  while (index < rawValue.length) {
+    const character = rawValue[index];
+    if (quote === '"' && character === '\\') {
+      if (index + 1 === rawValue.length) {
+        throw new Error(`Invalid frontmatter in ${sourcePath} at line ${lineNumber}: unterminated quoted value.`);
+      }
+      doubleQuotedLiteral += `${character}${rawValue[index + 1]}`;
+      index += 2;
+      continue;
+    }
+    if (character !== quote) {
+      value += character;
+      doubleQuotedLiteral += character;
+      index += 1;
+      continue;
+    }
+
+    if (quote === "'" && rawValue[index + 1] === "'") {
+      value += "'";
+      index += 2;
+      continue;
+    }
+    break;
+  }
+
+  if (index === rawValue.length) {
+    throw new Error(`Invalid frontmatter in ${sourcePath} at line ${lineNumber}: unterminated quoted value.`);
+  }
+
+  const remainder = rawValue.slice(index + 1).trim();
+  if (remainder !== '' && !remainder.startsWith('#')) {
+    throw new Error(`Invalid frontmatter in ${sourcePath} at line ${lineNumber}: invalid quoted value.`);
+  }
+  if (quote === '"') {
+    try {
+      return JSON.parse(`${doubleQuotedLiteral}"`);
+    } catch {
+      throw new Error(`Invalid frontmatter in ${sourcePath} at line ${lineNumber}: invalid quoted value.`);
+    }
+  }
+  return value;
+}
+
+function parseScalar(rawValue, sourcePath, lineNumber) {
+  const value = rawValue.trim();
+  if (value.startsWith('"') || value.startsWith("'")) {
+    return parseQuotedScalar(value, value[0], sourcePath, lineNumber);
+  }
+  if (value.startsWith('#')) return '';
+  return value.replace(/\s+#.*$/, '').trim();
+}
+
+function parseFrontmatter(text, sourcePath = 'source file') {
+  if (!text.startsWith('---\n') && !text.startsWith('---\r\n')) {
+    return { meta: {}, body: text };
+  }
+
+  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/);
+  if (!match) {
+    throw new Error(`Invalid frontmatter in ${sourcePath}: missing closing --- delimiter.`);
+  }
 
   const meta = {};
-  for (const line of match[1].split(/\r?\n/)) {
+  for (const [index, line] of match[1].split(/\r?\n/).entries()) {
+    if (line.trim() === '' || line.trimStart().startsWith('#')) continue;
     const kv = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-    if (kv) meta[kv[1]] = kv[2].replace(/^['"]|['"]$/g, '').trim();
+    if (!kv) {
+      throw new Error(`Invalid frontmatter in ${sourcePath} at line ${index + 2}: ${line}`);
+    }
+    if (Object.hasOwn(meta, kv[1])) {
+      throw new Error(`Invalid frontmatter in ${sourcePath}: duplicate field "${kv[1]}".`);
+    }
+    meta[kv[1]] = parseScalar(kv[2], sourcePath, index + 2);
   }
   return { meta, body: match[2] };
+}
+
+function validateFrontmatter(text, sourcePath, kind, allowedFields) {
+  const frontmatter = parseFrontmatter(text, sourcePath);
+  for (const field of Object.keys(frontmatter.meta)) {
+    if (!allowedFields.has(field)) {
+      throw new Error(`Unsupported ${kind} frontmatter field "${field}" in ${sourcePath}.`);
+    }
+  }
+  for (const field of ['name', 'description']) {
+    if (!frontmatter.meta[field]) {
+      throw new Error(`Invalid ${kind} frontmatter in ${sourcePath}: "${field}" is required.`);
+    }
+  }
+  return frontmatter;
+}
+
+function validateSourceFrontmatter() {
+  for (const entry of listEntries(SOURCE_SKILLS)) {
+    if (!entry.stat.isDirectory()) continue;
+    const skillFile = join(entry.path, 'SKILL.md');
+    if (!existsSync(skillFile) || !statSync(skillFile).isFile()) continue;
+    validateFrontmatter(readFileSync(skillFile, 'utf8'), skillFile, 'skill', SKILL_FRONTMATTER_FIELDS);
+  }
+
+  for (const entry of listEntries(SOURCE_AGENTS)) {
+    if (!entry.stat.isFile() || !entry.name.toLowerCase().endsWith('.md')) continue;
+    validateFrontmatter(readFileSync(entry.path, 'utf8'), entry.path, 'agent', AGENT_FRONTMATTER_FIELDS);
+  }
 }
 
 function tomlString(value) {
@@ -729,13 +829,15 @@ async function main() {
     throw new Error(`Source directory is missing: ${SOURCE_ROOT}. Run: npm run init`);
   }
 
-  if (DRY_RUN_REQUESTED) {
-    runSync(true);
+  if (PRE_COMMIT_REQUESTED && preCommitSync === 'off') {
+    console.log('[sync-global-ai] pre-commit sync skipped because preCommitSync is off.');
     return;
   }
 
-  if (PRE_COMMIT_REQUESTED && preCommitSync === 'off') {
-    console.log('[sync-global-ai] pre-commit sync skipped because preCommitSync is off.');
+  validateSourceFrontmatter();
+
+  if (DRY_RUN_REQUESTED) {
+    runSync(true);
     return;
   }
 

@@ -756,6 +756,15 @@ test('syncs nested skills to .agents while preserving legacy Codex skills and ag
       'Inspect the requested implementation.',
       '',
     ].join('\n');
+    const skillMarkdown = [
+      '---',
+      'name: nested-skill',
+      'description: Tests nested skill synchronization',
+      '---',
+      '',
+      '# Nested skill',
+      '',
+    ].join('\n');
 
     writeSyncConfig(environment.repository, { instructionsMode: 'off' });
     mkdirSync(join(sourceSkill, 'references'), { recursive: true });
@@ -765,7 +774,7 @@ test('syncs nested skills to .agents while preserving legacy Codex skills and ag
     mkdirSync(join(environment.home, '.claude', 'agents'), { recursive: true });
     mkdirSync(join(environment.home, '.codex', 'agents'), { recursive: true });
     mkdirSync(join(environment.repository, 'sources', 'agents'), { recursive: true });
-    writeFileSync(join(sourceSkill, 'SKILL.md'), '# Nested skill\n');
+    writeFileSync(join(sourceSkill, 'SKILL.md'), skillMarkdown);
     writeFileSync(join(sourceSkill, 'references', 'guide.md'), 'Nested reference\n');
     writeFileSync(join(environment.home, '.claude', 'skills', 'preserved-skill', 'SKILL.md'), 'Claude local skill\n');
     writeFileSync(join(legacyCodexSkill, 'SKILL.md'), 'Legacy Codex nested skill\n');
@@ -781,9 +790,9 @@ test('syncs nested skills to .agents while preserving legacy Codex skills and ag
     assert.equal(firstRun.status, 0, firstRun.output);
     assert.equal((firstRun.output.match(/create - nested-skill/g) ?? []).length, 2);
     assert.equal((firstRun.output.match(/create - review-agent\.md/g) ?? []).length, 2);
-    assert.equal(readFileSync(join(claudeSkill, 'SKILL.md'), 'utf8'), '# Nested skill\n');
+    assert.equal(readFileSync(join(claudeSkill, 'SKILL.md'), 'utf8'), skillMarkdown);
     assert.equal(readFileSync(join(claudeSkill, 'references', 'guide.md'), 'utf8'), 'Nested reference\n');
-    assert.equal(readFileSync(join(codexSkill, 'SKILL.md'), 'utf8'), '# Nested skill\n');
+    assert.equal(readFileSync(join(codexSkill, 'SKILL.md'), 'utf8'), skillMarkdown);
     assert.equal(readFileSync(join(codexSkill, 'references', 'guide.md'), 'utf8'), 'Nested reference\n');
     assert.equal(readFileSync(join(legacyCodexSkill, 'SKILL.md'), 'utf8'), 'Legacy Codex nested skill\n');
     assert.equal(
@@ -813,6 +822,139 @@ test('syncs nested skills to .agents while preserving legacy Codex skills and ag
     assert.doesNotMatch(secondRun.output, /Instructions/);
     assert.match(secondRun.output, /No changes to apply; sync cancelled without writing\./);
     assert.deepEqual(snapshotDirectory(environment.home), homeAfterFirstRun);
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('allows the documented skill and agent frontmatter fields', () => {
+  const environment = createTestEnvironment();
+  try {
+    const skillDirectory = join(environment.repository, 'sources', 'skills', 'documented-skill');
+    const agentDirectory = join(environment.repository, 'sources', 'agents');
+    mkdirSync(skillDirectory, { recursive: true });
+    mkdirSync(agentDirectory, { recursive: true });
+    writeFileSync(
+      join(skillDirectory, 'SKILL.md'),
+      '---\nname: documented-skill\ndescription: Uses only shared skill metadata\n---\n\n# Documented skill\n',
+    );
+    writeFileSync(
+      join(agentDirectory, 'documented-agent.md'),
+      '---\nname: documented-agent\ndescription: Uses all shared agent metadata\nmodel: opus\neffort: xhigh\n---\n\n# Documented agent\n',
+    );
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('parses inline comments and quoted scalar frontmatter values', () => {
+  const environment = createTestEnvironment();
+  try {
+    const skillDirectory = join(environment.repository, 'sources', 'skills', 'quoted-skill');
+    const agentDirectory = join(environment.repository, 'sources', 'agents');
+    const codexAgent = join(environment.home, '.codex', 'agents', 'quoted-agent.toml');
+    mkdirSync(skillDirectory, { recursive: true });
+    mkdirSync(agentDirectory, { recursive: true });
+    writeFileSync(
+      join(skillDirectory, 'SKILL.md'),
+      '---\nname: "quoted-skill" # source name\ndescription: \'Skill\'\'s # description\' # source description\n---\n\n# Quoted skill\n',
+    );
+    writeFileSync(
+      join(agentDirectory, 'quoted-agent.md'),
+      '---\nname: "quoted-agent" # source name\ndescription: "Reviews \\"quoted\\" changes # safely" # source description\nmodel: "opus" # source model\neffort: \'xhigh\' # source effort\n---\n\n# Quoted agent\n',
+    );
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(readFileSync(codexAgent, 'utf8'), /description = "Reviews \\"quoted\\" changes # safely"/);
+  } finally {
+    environment.cleanup();
+  }
+});
+
+for (const invalidFrontmatter of [
+  {
+    name: 'unsupported skill field',
+    file: ['sources', 'skills', 'invalid-skill', 'SKILL.md'],
+    content: '---\nname: invalid-skill\ndescription: Invalid skill\nallowed-tools: Read\n---\n',
+    error: /Unsupported skill frontmatter field "allowed-tools"/,
+  },
+  {
+    name: 'unsupported agent field',
+    file: ['sources', 'agents', 'invalid-agent.md'],
+    content: '---\nname: invalid-agent\ndescription: Invalid agent\ntools: Read\n---\n',
+    error: /Unsupported agent frontmatter field "tools"/,
+  },
+  {
+    name: 'malformed agent frontmatter',
+    file: ['sources', 'agents', 'invalid-agent.md'],
+    content: '---\nname: invalid-agent\ndescription Invalid agent\n---\n',
+    error: /Invalid frontmatter.*line 3/,
+  },
+  {
+    name: 'skill missing required description',
+    file: ['sources', 'skills', 'invalid-skill', 'SKILL.md'],
+    content: '---\nname: invalid-skill\n---\n',
+    error: /Invalid skill frontmatter.*"description" is required/,
+  },
+  {
+    name: 'agent with empty required name',
+    file: ['sources', 'agents', 'invalid-agent.md'],
+    content: '---\nname:   # missing\ndescription: Invalid agent\n---\n',
+    error: /Invalid agent frontmatter.*"name" is required/,
+  },
+]) {
+  test(`${invalidFrontmatter.name} aborts before writing global targets or backups`, () => {
+    const environment = createTestEnvironment();
+    try {
+      const sourceFile = join(environment.repository, ...invalidFrontmatter.file);
+      const codexInstructions = join(environment.home, '.codex', 'AGENTS.md');
+      const claudeSkill = join(environment.home, '.claude', 'skills', 'local-skill', 'SKILL.md');
+      const codexAgent = join(environment.home, '.codex', 'agents', 'local-agent.toml');
+      mkdirSync(dirname(sourceFile), { recursive: true });
+      mkdirSync(dirname(codexInstructions), { recursive: true });
+      mkdirSync(dirname(claudeSkill), { recursive: true });
+      mkdirSync(dirname(codexAgent), { recursive: true });
+      writeFileSync(sourceFile, invalidFrontmatter.content);
+      writeFileSync(codexInstructions, '## Local Codex instructions\nKeep unchanged.\n');
+      writeFileSync(claudeSkill, '# Local skill\n');
+      writeFileSync(codexAgent, 'name = "local-agent"\n');
+      const homeBefore = snapshotDirectory(environment.home);
+
+      const result = runSync(environment);
+
+      assert.notEqual(result.status, 0);
+      assert.match(result.output, invalidFrontmatter.error);
+      assert.deepEqual(snapshotDirectory(environment.home), homeBefore);
+      assert.deepEqual(backupDirectories(environment.repository), []);
+    } finally {
+      environment.cleanup();
+    }
+  });
+}
+
+test('pre-commit sync disabled skips source frontmatter validation', () => {
+  const environment = createTestEnvironment();
+  try {
+    const sourceAgent = join(environment.repository, 'sources', 'agents', 'invalid-agent.md');
+    const codexInstructions = join(environment.home, '.codex', 'AGENTS.md');
+    mkdirSync(dirname(sourceAgent), { recursive: true });
+    mkdirSync(dirname(codexInstructions), { recursive: true });
+    writeFileSync(sourceAgent, '---\nname: invalid-agent\ntools: Read\n---\n');
+    writeFileSync(codexInstructions, '## Local Codex instructions\nKeep unchanged.\n');
+    const homeBefore = snapshotDirectory(environment.home);
+
+    const result = runSync(environment, ['--pre-commit']);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /pre-commit sync skipped because preCommitSync is off/);
+    assert.deepEqual(snapshotDirectory(environment.home), homeBefore);
+    assert.deepEqual(backupDirectories(environment.repository), []);
   } finally {
     environment.cleanup();
   }
