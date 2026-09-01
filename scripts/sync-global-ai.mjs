@@ -44,6 +44,11 @@ const DEFAULT_CONFIG = {
   preCommitSync: 'off',
   backup: 'on',
   backupRetentionCount: 10,
+  providers: {
+    claude: true,
+    codex: true,
+    antigravity: false,
+  },
   agentModelMap: {
     opus: { claude: 'opus', codex: 'gpt-5.6-sol', antigravity: 'pro' },
     sonnet: { claude: 'sonnet', codex: 'gpt-5.6-terra', antigravity: 'pro' },
@@ -97,15 +102,24 @@ const TARGETS = {
 };
 
 const BACKUP_SPECS = [
-  { source: TARGETS.codex.agentsMd, destination: join('.codex', 'AGENTS.md') },
-  { source: TARGETS.claude.claudeMd, destination: join('.claude', 'CLAUDE.md') },
-  { source: TARGETS.antigravityInstructions.geminiMd, destination: join('.gemini', 'GEMINI.md') },
-  { source: TARGETS.claude.skills, destination: join('.claude', 'skills') },
-  { source: TARGETS.codexSkills.skills, destination: join('.agents', 'skills') },
-  { source: TARGETS.claude.agents, destination: join('.claude', 'agents') },
-  { source: TARGETS.codex.agents, destination: join('.codex', 'agents') },
-  { source: TARGETS.antigravity.agents, destination: join('.gemini', 'config', 'agents') },
+  { provider: 'codex', source: TARGETS.codex.agentsMd, destination: join('.codex', 'AGENTS.md') },
+  { provider: 'claude', source: TARGETS.claude.claudeMd, destination: join('.claude', 'CLAUDE.md') },
   {
+    provider: 'antigravity',
+    source: TARGETS.antigravityInstructions.geminiMd,
+    destination: join('.gemini', 'GEMINI.md'),
+  },
+  { provider: 'claude', source: TARGETS.claude.skills, destination: join('.claude', 'skills') },
+  { provider: 'codex', source: TARGETS.codexSkills.skills, destination: join('.agents', 'skills') },
+  { provider: 'claude', source: TARGETS.claude.agents, destination: join('.claude', 'agents') },
+  { provider: 'codex', source: TARGETS.codex.agents, destination: join('.codex', 'agents') },
+  {
+    provider: 'antigravity',
+    source: TARGETS.antigravity.agents,
+    destination: join('.gemini', 'config', 'agents'),
+  },
+  {
+    provider: 'antigravity',
     source: TARGETS.antigravitySkills.skills,
     destination: join('.gemini', 'antigravity-cli', 'skills'),
   },
@@ -118,6 +132,7 @@ const MANAGED_INSTRUCTION_SOURCE = `<!-- AUTO-GENERATED from ${SOURCE_ROOT} -->`
 const INSTRUCTION_MODES = new Set(['append', 'off', 'sidecar', 'managed']);
 const PRE_COMMIT_SYNC_MODES = new Set(['on', 'off']);
 const BACKUP_MODES = new Set(['on', 'off']);
+const PROVIDER_NAMES = new Set(['claude', 'codex', 'antigravity']);
 const SKILL_FRONTMATTER_FIELDS = new Set(['name', 'description']);
 const AGENT_FRONTMATTER_FIELDS = new Set(['name', 'description', 'model', 'effort']);
 const CLAUDE_AGENT_MODELS = new Set(['opus', 'sonnet', 'haiku']);
@@ -169,7 +184,17 @@ function readConfig() {
       ...DEFAULT_CONFIG.agentEffortMap,
       ...(userConfig.agentEffortMap || {}),
     },
+    providers:
+      userConfig.providers === undefined
+        ? DEFAULT_CONFIG.providers
+        : isProviderConfig(userConfig.providers)
+          ? { ...DEFAULT_CONFIG.providers, ...userConfig.providers }
+          : userConfig.providers,
   };
+}
+
+function isProviderConfig(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 const config = readConfig();
@@ -187,10 +212,26 @@ if (!BACKUP_MODES.has(config.backup)) {
 if (!Number.isInteger(config.backupRetentionCount) || config.backupRetentionCount < 1) {
   throw new Error('Invalid backupRetentionCount. Expected an integer greater than or equal to 1.');
 }
+if (!isProviderConfig(config.providers)) {
+  throw new Error('Invalid providers. Expected an object with supported provider names as boolean values.');
+}
+for (const [provider, enabled] of Object.entries(config.providers)) {
+  if (!PROVIDER_NAMES.has(provider)) {
+    throw new Error(`Unsupported provider "${provider}". Expected one of: ${[...PROVIDER_NAMES].join(', ')}.`);
+  }
+  if (typeof enabled !== 'boolean') {
+    throw new Error(`Invalid provider setting "${provider}". Expected a boolean.`);
+  }
+}
 const instructionMode = config.instructionsMode;
 const preCommitSync = config.preCommitSync;
 const backup = config.backup;
 const backupRetentionCount = config.backupRetentionCount;
+const providers = config.providers;
+
+function isProviderEnabled(provider) {
+  return providers[provider];
+}
 
 function instructionSpecsForMode(mode) {
   if (mode === 'off') return [];
@@ -210,24 +251,27 @@ function instructionSpecsForMode(mode) {
 
   return [
     {
+      provider: 'codex',
       name: 'AGENTS.md',
       source: join(SOURCE_ROOT, 'AGENTS.md'),
       target: TARGETS.codex,
       destination: destinations.codex,
     },
     {
+      provider: 'claude',
       name: 'CLAUDE.md',
       source: join(SOURCE_ROOT, 'CLAUDE.md'),
       target: TARGETS.claude,
       destination: destinations.claude,
     },
     {
+      provider: 'antigravity',
       name: 'GEMINI.md',
       source: join(SOURCE_ROOT, 'GEMINI.md'),
       target: TARGETS.antigravityInstructions,
       destination: destinations.antigravity,
     },
-  ];
+  ].filter((spec) => isProviderEnabled(spec.provider));
 }
 
 const instructionSpecs = instructionSpecsForMode(instructionMode);
@@ -399,6 +443,7 @@ function backupGlobalSettings() {
   const backupDirectory = createBackupDirectory();
 
   for (const spec of BACKUP_SPECS) {
+    if (!isProviderEnabled(spec.provider)) continue;
     if (!existsSync(spec.source)) continue;
 
     const destination = join(backupDirectory.directory, spec.destination);
@@ -651,30 +696,39 @@ function validateAgentModelMapping(meta, sourcePath) {
   }
 
   const mapped = config.agentModelMap[meta.model];
-  if (!mapped || typeof mapped !== 'object') {
+  if (
+    (isProviderEnabled('claude') || isProviderEnabled('codex') || isProviderEnabled('antigravity')) &&
+    (!mapped || typeof mapped !== 'object')
+  ) {
     throw new Error(`Missing agent model mapping for "${meta.model}" in ${sourcePath}.`);
   }
-  if (typeof mapped.claude !== 'string' || mapped.claude === '') {
-    throw new Error(`Missing Claude model mapping for "${meta.model}" in ${sourcePath}.`);
+  if (isProviderEnabled('claude')) {
+    if (typeof mapped.claude !== 'string' || mapped.claude === '') {
+      throw new Error(`Missing Claude model mapping for "${meta.model}" in ${sourcePath}.`);
+    }
+    if (!CLAUDE_AGENT_MODELS.has(mapped.claude)) {
+      throw new Error(
+        `Invalid Claude model mapping for "${meta.model}" in ${sourcePath}. Expected one of: ${[...CLAUDE_AGENT_MODELS].join(', ')}.`,
+      );
+    }
   }
-  if (!CLAUDE_AGENT_MODELS.has(mapped.claude)) {
-    throw new Error(
-      `Invalid Claude model mapping for "${meta.model}" in ${sourcePath}. Expected one of: ${[...CLAUDE_AGENT_MODELS].join(', ')}.`,
-    );
+  if (isProviderEnabled('codex')) {
+    if (typeof mapped.codex !== 'string') {
+      throw new Error(`Missing Codex model mapping for "${meta.model}" in ${sourcePath}.`);
+    }
+    if (mapped.codex.trim() === '') {
+      throw new Error(`Invalid Codex model mapping for "${meta.model}" in ${sourcePath}. Expected a non-empty string.`);
+    }
   }
-  if (typeof mapped.codex !== 'string') {
-    throw new Error(`Missing Codex model mapping for "${meta.model}" in ${sourcePath}.`);
-  }
-  if (mapped.codex.trim() === '') {
-    throw new Error(`Invalid Codex model mapping for "${meta.model}" in ${sourcePath}. Expected a non-empty string.`);
-  }
-  if (typeof mapped.antigravity !== 'string' || mapped.antigravity === '') {
-    throw new Error(`Missing Antigravity model mapping for "${meta.model}" in ${sourcePath}.`);
-  }
-  if (!['flash', 'pro'].includes(mapped.antigravity)) {
-    throw new Error(
-      `Invalid Antigravity model mapping for "${meta.model}" in ${sourcePath}. Expected "flash" or "pro".`,
-    );
+  if (isProviderEnabled('antigravity')) {
+    if (typeof mapped.antigravity !== 'string' || mapped.antigravity === '') {
+      throw new Error(`Missing Antigravity model mapping for "${meta.model}" in ${sourcePath}.`);
+    }
+    if (!['flash', 'pro'].includes(mapped.antigravity)) {
+      throw new Error(
+        `Invalid Antigravity model mapping for "${meta.model}" in ${sourcePath}. Expected "flash" or "pro".`,
+      );
+    }
   }
 }
 
@@ -687,24 +741,31 @@ function validateAgentEffortMapping(meta, sourcePath) {
     );
   }
   const mapped = config.agentEffortMap[meta.effort];
-  if (!mapped || typeof mapped !== 'object') {
+  if (
+    (isProviderEnabled('claude') || isProviderEnabled('codex')) &&
+    (!mapped || typeof mapped !== 'object')
+  ) {
     throw new Error(`Missing agent reasoning effort mapping for "${meta.effort}" in ${sourcePath}.`);
   }
-  if (typeof mapped.claude !== 'string' || mapped.claude === '') {
-    throw new Error(`Missing Claude reasoning effort mapping for "${meta.effort}" in ${sourcePath}.`);
+  if (isProviderEnabled('claude')) {
+    if (typeof mapped.claude !== 'string' || mapped.claude === '') {
+      throw new Error(`Missing Claude reasoning effort mapping for "${meta.effort}" in ${sourcePath}.`);
+    }
+    if (!CLAUDE_REASONING_EFFORTS.has(mapped.claude)) {
+      throw new Error(
+        `Invalid Claude reasoning effort mapping for "${meta.effort}" in ${sourcePath}. Expected one of: ${[...CLAUDE_REASONING_EFFORTS].join(', ')}.`,
+      );
+    }
   }
-  if (!CLAUDE_REASONING_EFFORTS.has(mapped.claude)) {
-    throw new Error(
-      `Invalid Claude reasoning effort mapping for "${meta.effort}" in ${sourcePath}. Expected one of: ${[...CLAUDE_REASONING_EFFORTS].join(', ')}.`,
-    );
-  }
-  if (typeof mapped.codex !== 'string' || mapped.codex === '') {
-    throw new Error(`Missing Codex reasoning effort mapping for "${meta.effort}" in ${sourcePath}.`);
-  }
-  if (!CODEX_REASONING_EFFORTS.has(mapped.codex)) {
-    throw new Error(
-      `Invalid Codex reasoning effort mapping for "${meta.effort}" in ${sourcePath}. Expected one of: ${[...CODEX_REASONING_EFFORTS].join(', ')}.`,
-    );
+  if (isProviderEnabled('codex')) {
+    if (typeof mapped.codex !== 'string' || mapped.codex === '') {
+      throw new Error(`Missing Codex reasoning effort mapping for "${meta.effort}" in ${sourcePath}.`);
+    }
+    if (!CODEX_REASONING_EFFORTS.has(mapped.codex)) {
+      throw new Error(
+        `Invalid Codex reasoning effort mapping for "${meta.effort}" in ${sourcePath}. Expected one of: ${[...CODEX_REASONING_EFFORTS].join(', ')}.`,
+      );
+    }
   }
 }
 
@@ -797,13 +858,17 @@ function syncSkills() {
       continue;
     }
 
-    for (const target of [TARGETS.claude, TARGETS.codexSkills]) {
-      ensureTargetRoot(target);
-      replaceSkill(entry.name, entry.path, target);
+    if (isProviderEnabled('claude')) {
+      ensureTargetRoot(TARGETS.claude);
+      replaceSkill(entry.name, entry.path, TARGETS.claude);
+    }
+    if (isProviderEnabled('codex')) {
+      ensureTargetRoot(TARGETS.codexSkills);
+      replaceSkill(entry.name, entry.path, TARGETS.codexSkills);
     }
 
     const sourceSkillFile = join(entry.path, 'SKILL.md');
-    if (existsSync(sourceSkillFile) && statSync(sourceSkillFile).isFile()) {
+    if (isProviderEnabled('antigravity') && existsSync(sourceSkillFile) && statSync(sourceSkillFile).isFile()) {
       ensureTargetRoot(TARGETS.antigravitySkills);
       replaceAntigravitySkill(entry.name, entry.path);
     }
@@ -838,34 +903,40 @@ function syncMarkdownAgent(entry) {
   const name = basename(entry.name, '.md');
   const markdown = readFileSync(entry.path, 'utf8');
 
-  ensureTargetRoot(TARGETS.claude);
-  const claudeDestination = join(TARGETS.claude.agents, `${name}.md`);
-  clearAgentName(TARGETS.claude, name, claudeDestination);
-  writeFile(claudeDestination, claudeAgentMarkdown(markdown), TARGETS.claude.root, {
-    section: 'agents',
-    label: entry.name,
-  });
-
-  ensureTargetRoot(TARGETS.codex);
-  const codexDestination = join(TARGETS.codex.agents, `${name}.toml`);
-  clearAgentName(TARGETS.codex, name, codexDestination);
-  writeFile(codexDestination, codexAgentToml(name, markdown), TARGETS.codex.root, {
-    section: 'agents',
-    label: entry.name,
-  });
-
-  ensureTargetRoot(TARGETS.antigravity);
-  const antigravityDestination = join(TARGETS.antigravity.agents, name, 'agent.md');
-  clearAgentName(TARGETS.antigravity, name, antigravityDestination);
-  writeFile(
-    antigravityDestination,
-    antigravityAgentMarkdown(markdown),
-    TARGETS.antigravity.root,
-    {
+  if (isProviderEnabled('claude')) {
+    ensureTargetRoot(TARGETS.claude);
+    const claudeDestination = join(TARGETS.claude.agents, `${name}.md`);
+    clearAgentName(TARGETS.claude, name, claudeDestination);
+    writeFile(claudeDestination, claudeAgentMarkdown(markdown), TARGETS.claude.root, {
       section: 'agents',
       label: entry.name,
-    },
-  );
+    });
+  }
+
+  if (isProviderEnabled('codex')) {
+    ensureTargetRoot(TARGETS.codex);
+    const codexDestination = join(TARGETS.codex.agents, `${name}.toml`);
+    clearAgentName(TARGETS.codex, name, codexDestination);
+    writeFile(codexDestination, codexAgentToml(name, markdown), TARGETS.codex.root, {
+      section: 'agents',
+      label: entry.name,
+    });
+  }
+
+  if (isProviderEnabled('antigravity')) {
+    ensureTargetRoot(TARGETS.antigravity);
+    const antigravityDestination = join(TARGETS.antigravity.agents, name, 'agent.md');
+    clearAgentName(TARGETS.antigravity, name, antigravityDestination);
+    writeFile(
+      antigravityDestination,
+      antigravityAgentMarkdown(markdown),
+      TARGETS.antigravity.root,
+      {
+        section: 'agents',
+        label: entry.name,
+      },
+    );
+  }
 }
 
 function syncAgents() {

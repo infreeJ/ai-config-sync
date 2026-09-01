@@ -1,6 +1,6 @@
 # ai-config-sync
 
-`ai-config-sync`는 Claude, Codex, Antigravity CLI에서 쓰는 전역 설정을 한 저장소에서 관리하고 필요할 때 동기화하는 도구입니다. 전역 디렉터리(`~/.claude`, `~/.codex`, `~/.agents`, `~/.gemini`)를 직접 수정하지 않고 `sources/`를 원본으로 사용합니다.
+`ai-config-sync`는 Claude, Codex, Antigravity CLI에서 쓸 수 있는 전역 설정을 한 저장소에서 관리하고, 선택한 제공자에만 동기화하는 도구입니다. 전역 디렉터리(`~/.claude`, `~/.codex`, `~/.agents`, `~/.gemini`)를 직접 수정하지 않고 `sources/`를 원본으로 사용합니다.
 
 <br>
 
@@ -41,12 +41,30 @@ sources/
   CLAUDE.md       # Claude 지시문 원본
   GEMINI.md       # Antigravity CLI 지시문 원본
   agents/         # Claude 기준 Markdown agent 원본
-  skills/         # 세 도구에 공유할 skill 디렉터리
+  skills/         # 활성화한 제공자에 공유할 skill 디렉터리
 scripts/             # 스크립트 및 시스템 파일
 sync.config.json      # 동기화 설정 파일
 ```
 
 `sources/`는 사용자의 개인 원본입니다. 설정은 항상 이 디렉터리에서 수정하세요.
+
+### 동기화 제공자 선택
+
+`sync.config.json`의 `providers`에서 제공자별 동기화 여부를 설정합니다. 기본값은 Claude와 Codex를 동기화하고 Antigravity CLI는 제외하는 다음 설정입니다.
+
+```json
+{
+  "providers": {
+    "claude": true,
+    "codex": true,
+    "antigravity": false
+  }
+}
+```
+
+허용하는 키는 `claude`, `codex`, `antigravity`뿐이며 값은 boolean이어야 합니다. 일부 키만 지정하면 지정하지 않은 키에는 기본값을 적용합니다. 예를 들어 Antigravity CLI도 동기화하려면 `"antigravity": true`를 지정합니다.
+
+비활성화한 제공자의 전역 지시문, skills, agents는 생성·수정·삭제하지 않습니다. 해당 제공자에서 과거에 동기화한 파일도 그대로 유지합니다. `sources/GEMINI.md`와 Antigravity CLI 대상 skill·agent 원본은 Antigravity CLI를 활성화할 때 사용할 수 있습니다.
 
 | 원본 | Claude | Codex | Antigravity CLI |
 | --- | --- | --- | --- |
@@ -56,15 +74,15 @@ sync.config.json      # 동기화 설정 파일
 | `sources/skills/<name>/SKILL.md` | `~/.claude/skills/<name>/SKILL.md` | `~/.agents/skills/<name>/SKILL.md` | `~/.gemini/antigravity-cli/skills/<name>/SKILL.md` |
 | `sources/agents/<name>.md` | `~/.claude/agents/<name>.md` | `~/.codex/agents/<name>.toml` | `~/.gemini/config/agents/<name>/agent.md` |
 
-`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`는 각각 Claude, Codex, Antigravity CLI에만 동기화합니다.
+`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`는 각각 Claude, Codex, Antigravity CLI에만 동기화합니다. 표의 대상 중 `providers`에서 활성화한 제공자에만 실제로 적용합니다.
 
-동일한 이름의 skill 또는 agent는 갱신하지만, 이름이 다른 전역 항목은 보존합니다. Codex에 포함된 `.system` skill도 관리 대상이 아닙니다.
+동일한 이름의 skill 또는 agent는 활성화한 제공자에서만 갱신하지만, 이름이 다른 전역 항목은 보존합니다. Codex에 포함된 `.system` skill도 관리 대상이 아닙니다.
 
 ## 동기화 전 백업
 
 `sync.config.json`의 `backup`은 기본값이 `"on"`입니다. 실제 전역 파일 변경이 예정되어 승인된 경우에만, 적용 직전에 현재 전역 설정을 `backup/<실행별 폴더>/`에 복사합니다. 백업 폴더는 `2026-08-20T12-34-56-789Z` 형식의 UTC 생성 시각을 이름에 사용하며, 같은 시각에 여러 번 실행하면 `-1`, `-2`처럼 suffix를 붙여 기존 백업을 덮어쓰지 않습니다.
 
-백업에는 다음 항목이 존재하는 경우에만, 원래 디렉터리 구조를 유지해 저장합니다.
+백업에는 활성화한 제공자의 다음 항목이 존재하는 경우에만, 원래 디렉터리 구조를 유지해 저장합니다. 비활성화한 제공자의 전역 파일은 백업하지 않습니다.
 
 - `~/.codex/AGENTS.md`, `~/.claude/CLAUDE.md`, `~/.gemini/GEMINI.md`
 - `~/.claude/skills/`, `~/.agents/skills/`, `~/.gemini/antigravity-cli/skills/`
@@ -104,9 +122,9 @@ git merge upstream/main
 | 모드 | 동작 |
 | --- | --- |
 | `append` (기본값) | 기존 전역 지시문의 관리 마커 블록에만 원본 지시문을 추가하거나 갱신합니다. |
-| `managed` | 기존 전역 지시문인 `~/.codex/AGENTS.md`, `~/.claude/CLAUDE.md`, `~/.gemini/GEMINI.md`를 원본으로 교체합니다. |
-| `off` | 지시문은 건너뛰고 skills와 agents만 동기화합니다. |
-| `sidecar` | `AGENTS-sync.md`, `CLAUDE-sync.md`, `GEMINI-sync.md`만 씁니다. (실험적 옵션)|
+| `managed` | 활성화한 제공자의 기존 전역 지시문을 원본으로 교체합니다. |
+| `off` | 활성화한 제공자의 지시문은 건너뛰고 skills와 agents만 동기화합니다. |
+| `sidecar` | 활성화한 제공자의 `AGENTS-sync.md`, `CLAUDE-sync.md`, `GEMINI-sync.md`만 씁니다. (실험적 옵션)|
 
 ### 1. `append`: 공유 설정과 로컬 설정 함께 관리
 
@@ -147,7 +165,7 @@ Claude에서는 경로를 `~/.claude/CLAUDE-sync.md`로, Antigravity CLI에서�
 
 ## 원본 작성법
 
-스킬은 `sources/skills/<skill-name>/`에 두고, 중심 지시문을 `SKILL.md`에 작성합니다. 스킬 프론트매터에는 `name`, `description`만 쓸 수 있습니다. 필요한 보조 파일도 같은 디렉터리에 둘 수 있으며 Claude, Codex, Antigravity CLI에 함께 복사됩니다.
+스킬은 `sources/skills/<skill-name>/`에 두고, 중심 지시문을 `SKILL.md`에 작성합니다. 스킬 프론트매터에는 `name`, `description`만 쓸 수 있습니다. 필요한 보조 파일도 같은 디렉터리에 둘 수 있으며 활성화한 제공자에 함께 복사됩니다.
 
 에이전트는 `sources/agents/<agent-name>.md`에 Claude 기준으로 작성합니다. 에이전트 프론트매터에는 `name`, `description`, `model`, `effort`만 쓸 수 있습니다.
 
@@ -162,13 +180,13 @@ effort: high
 Agent instructions go here.
 ```
 
-`model`과 `effort`는 선택 사항입니다. 생략하면 세 도구 모두 해당 필드를 출력하지 않아 부모 또는 기본 설정을 상속합니다.
+`model`과 `effort`는 선택 사항입니다. 생략하면 활성화한 제공자 모두 해당 필드를 출력하지 않아 부모 또는 기본 설정을 상속합니다.
 
 - Claude는 `model`과 `effort`를 각각 `agentModelMap`, `agentEffortMap`의 `claude` 매핑값으로 변환합니다.
 - Codex는 `model`을 대상 모델로 바꾸고 `effort`를 `model_reasoning_effort`로 변환합니다.
 - Antigravity CLI는 대상 모델만 받고 `effort`는 출력하지 않습니다.
 
-`sync.config.json`의 `agentModelMap`은 Claude 원본 모델을 Claude, Codex, Antigravity CLI 모델로 각각 매핑합니다. `agentEffortMap`은 Claude 원본 추론 수준을 Claude와 Codex의 추론 수준으로 별도로 매핑하며, Antigravity 값은 지원하지 않음을 뜻하는 빈 문자열(`""`)로 둡니다. Claude 모델의 원본 키와 대상 값은 `opus`, `sonnet`, `haiku` 중 하나여야 하고, Antigravity CLI 모델은 `flash` 또는 `pro`만 사용할 수 있습니다. Antigravity CLI는 추론 수준을 받지 않습니다.
+`sync.config.json`의 `agentModelMap`은 Claude 원본 모델을 제공자별 모델로 매핑합니다. `agentEffortMap`은 Claude 원본 추론 수준을 제공자별 추론 수준으로 매핑합니다. 에이전트에 `model` 또는 `effort`를 썼다면 해당 값의 매핑은 활성화한 제공자에 대해서만 필요합니다. 비활성화한 제공자의 매핑은 남겨 두거나 생략할 수 있으며 동기화에 사용하지 않습니다. Claude 모델의 원본 키와 대상 값은 `opus`, `sonnet`, `haiku` 중 하나여야 하고, Antigravity CLI 모델은 `flash` 또는 `pro`만 사용할 수 있습니다. Antigravity CLI는 추론 수준을 받지 않으므로 해당 값은 빈 문자열(`""`)로 둡니다.
 
 ```json
 {
@@ -209,7 +227,7 @@ Agent instructions go here.
 }
 ```
 
-이전 설정의 `codexAgentDefaults`, `codexAgentModelMap`은 더 이상 사용하지 않습니다. 두 키를 제거하고 필요한 모델마다 `agentModelMap` 항목을 추가하세요. 원본 에이전트에 `model`을 썼다면 해당 모델의 Claude, Codex, Antigravity CLI 매핑이 모두 필요하고, `effort`를 썼다면 해당 추론 수준의 `agentEffortMap` 항목이 필요합니다. 추론 수준의 원본 키와 Claude 대상 값은 `low`, `medium`, `high`, `xhigh`, `max` 중 하나여야 합니다. Codex 대상 값은 `none`, `low`, `medium`, `high`, `xhigh`, `max` 중 하나여야 합니다.
+이전 설정의 `codexAgentDefaults`, `codexAgentModelMap`은 더 이상 사용하지 않습니다. 두 키를 제거하고 필요한 모델마다 `agentModelMap` 항목을 추가하세요. 원본 에이전트에 `model`을 썼다면 활성화한 제공자에 해당 모델 매핑이 모두 필요하고, `effort`를 썼다면 활성화한 제공자 중 추론 수준을 지원하는 제공자에 해당 `agentEffortMap` 항목이 필요합니다. 추론 수준의 원본 키와 Claude 대상 값은 `low`, `medium`, `high`, `xhigh`, `max` 중 하나여야 합니다. Codex 대상 값은 `none`, `low`, `medium`, `high`, `xhigh`, `max` 중 하나여야 합니다.
 
 <br>
 
@@ -236,4 +254,4 @@ git config core.hooksPath scripts/hooks
 - 수정은 항상 `sources/`에서만 합니다.
 - 적용 전에는 `npm run sync:dry`로 계획을 확인합니다.
 - 기본 `append` 모드는 관리 마커 블록 밖의 기존 전역 지시문을 보존합니다.
-- 스크립트는 Claude, Codex, Antigravity CLI의 지정 전역 루트 밖으로 쓰지 않도록 경로를 검증합니다.
+- 스크립트는 활성화한 제공자의 지정 전역 루트 밖으로 쓰지 않도록 경로를 검증합니다.
