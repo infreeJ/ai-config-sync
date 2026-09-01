@@ -742,7 +742,7 @@ function validateAgentEffortMapping(meta, sourcePath) {
   }
   const mapped = config.agentEffortMap[meta.effort];
   if (
-    (isProviderEnabled('claude') || isProviderEnabled('codex') || isProviderEnabled('antigravity')) &&
+    (isProviderEnabled('claude') || isProviderEnabled('codex')) &&
     (!mapped || typeof mapped !== 'object')
   ) {
     throw new Error(`Missing agent reasoning effort mapping for "${meta.effort}" in ${sourcePath}.`);

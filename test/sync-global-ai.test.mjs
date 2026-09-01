@@ -1080,6 +1080,41 @@ test('disabled provider mappings are not required for agent sync', () => {
   }
 });
 
+test('Antigravity-only sync does not require reasoning effort mappings', () => {
+  const environment = createTestEnvironment({ enableAllProviders: false });
+  try {
+    const sourceAgent = join(environment.repository, 'sources', 'agents', 'antigravity-agent.md');
+    const antigravityAgent = join(
+      environment.home,
+      '.gemini',
+      'config',
+      'agents',
+      'antigravity-agent',
+      'agent.md',
+    );
+    writeSyncConfig(environment.repository, {
+      instructionsMode: 'off',
+      providers: { claude: false, codex: false, antigravity: true },
+      agentEffortMap: { max: null },
+    });
+    mkdirSync(dirname(sourceAgent), { recursive: true });
+    writeFileSync(
+      sourceAgent,
+      '---\nname: antigravity-agent\ndescription: Does not use effort mappings\neffort: max\n---\n\n# Antigravity agent\n',
+    );
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.equal(existsSync(antigravityAgent), true);
+    assert.doesNotMatch(readFileSync(antigravityAgent, 'utf8'), /^effort:/m);
+    assert.equal(existsSync(join(environment.home, '.claude')), false);
+    assert.equal(existsSync(join(environment.home, '.codex')), false);
+  } finally {
+    environment.cleanup();
+  }
+});
+
 test('omits model and reasoning effort for agents that inherit target defaults', () => {
   const environment = createTestEnvironment();
   try {
