@@ -3,6 +3,11 @@
   "preCommitSync": "off",
   "backup": "on",
   "backupRetentionCount": 10,
+  "providers": {
+    "claude": true,
+    "codex": true,
+    "antigravity": false
+  },
   "agentModelMap": {
     "opus": {
       "claude": "opus",

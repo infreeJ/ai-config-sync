@@ -22,7 +22,7 @@ const INIT_CLI_PATH = join('scripts', 'init-sources.mjs');
 const BEGIN_MARKER = '<!-- ai-config-sync:begin instruction -->';
 const END_MARKER = '<!-- ai-config-sync:end instruction -->';
 
-function createTestEnvironment({ initializeGit = true, initializeSources = true } = {}) {
+function createTestEnvironment({ initializeGit = true, initializeSources = true, enableAllProviders = true } = {}) {
   const temporaryRoot = mkdtempSync(join(tmpdir(), 'ai-config-sync-test-'));
   const repository = join(temporaryRoot, 'repository');
   const home = join(temporaryRoot, 'home');
@@ -31,6 +31,11 @@ function createTestEnvironment({ initializeGit = true, initializeSources = true 
     filter: (source) =>
       source !== join(REPOSITORY_ROOT, 'sources') && !['.git', 'node_modules'].includes(basename(source)),
   });
+  if (enableAllProviders) {
+    writeSyncConfig(repository, {
+      providers: { claude: true, codex: true, antigravity: true },
+    });
+  }
   mkdirSync(home);
   if (initializeGit) {
     execFileSync('git', ['init', '--quiet'], { cwd: repository });
@@ -986,6 +991,95 @@ test('preserves non-file Antigravity paths that use a legacy skill filename', ()
   }
 });
 
+test('default providers sync Claude and Codex while preserving every Antigravity target', () => {
+  const environment = createTestEnvironment({ enableAllProviders: false });
+  try {
+    const sourceSkill = join(environment.repository, 'sources', 'skills', 'provider-skill');
+    const sourceAgent = join(environment.repository, 'sources', 'agents', 'provider-agent.md');
+    const geminiInstructions = join(environment.home, '.gemini', 'GEMINI.md');
+    const geminiAgent = join(environment.home, '.gemini', 'config', 'agents', 'provider-agent', 'agent.md');
+    const legacyGeminiSkill = join(environment.home, '.gemini', 'antigravity-cli', 'skills', 'provider-skill.md');
+    mkdirSync(sourceSkill, { recursive: true });
+    mkdirSync(dirname(sourceAgent), { recursive: true });
+    mkdirSync(dirname(geminiInstructions), { recursive: true });
+    mkdirSync(dirname(geminiAgent), { recursive: true });
+    mkdirSync(dirname(legacyGeminiSkill), { recursive: true });
+    writeFileSync(join(sourceSkill, 'SKILL.md'), '---\nname: provider-skill\ndescription: Verifies provider selection\n---\n');
+    writeFileSync(
+      sourceAgent,
+      '---\nname: provider-agent\ndescription: Verifies provider selection\n---\n\n# Provider agent\n',
+    );
+    writeFileSync(geminiInstructions, 'Keep Gemini instructions.\n');
+    writeFileSync(geminiAgent, 'Keep Gemini agent.\n');
+    writeFileSync(legacyGeminiSkill, 'Keep legacy Gemini skill.\n');
+    const geminiBefore = snapshotDirectory(join(environment.home, '.gemini'));
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.deepEqual(snapshotDirectory(join(environment.home, '.gemini')), geminiBefore);
+    assert.equal(existsSync(join(environment.home, '.claude', 'skills', 'provider-skill', 'SKILL.md')), true);
+    assert.equal(existsSync(join(environment.home, '.agents', 'skills', 'provider-skill', 'SKILL.md')), true);
+    assert.equal(existsSync(join(environment.home, '.claude', 'agents', 'provider-agent.md')), true);
+    assert.equal(existsSync(join(environment.home, '.codex', 'agents', 'provider-agent.toml')), true);
+    const [backupDirectory] = backupDirectories(environment.repository);
+    assert.equal(existsSync(join(environment.repository, 'backup', backupDirectory, '.gemini')), false);
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('partially configured providers can opt Antigravity back in', () => {
+  const environment = createTestEnvironment({ enableAllProviders: false });
+  try {
+    const geminiInstructions = join(environment.home, '.gemini', 'GEMINI.md');
+    writeSyncConfig(environment.repository, { providers: { antigravity: true } });
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(readFileSync(geminiInstructions, 'utf8'), /<!-- ai-config-sync:begin instruction -->/);
+    assert.match(
+      readFileSync(geminiInstructions, 'utf8'),
+      new RegExp(escapeRegExp(readFileSync(join(environment.repository, 'sources', 'GEMINI.md'), 'utf8').trim())),
+    );
+    assert.equal(existsSync(join(environment.home, '.claude', 'CLAUDE.md')), true);
+    assert.equal(existsSync(join(environment.home, '.codex', 'AGENTS.md')), true);
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('disabled provider mappings are not required for agent sync', () => {
+  const environment = createTestEnvironment({ enableAllProviders: false });
+  try {
+    const sourceAgent = join(environment.repository, 'sources', 'agents', 'mapped-agent.md');
+    writeSyncConfig(environment.repository, {
+      instructionsMode: 'off',
+      agentModelMap: {
+        opus: { claude: 'opus', codex: 'gpt-5.6-sol' },
+      },
+      agentEffortMap: {
+        max: { claude: 'max', codex: 'max' },
+      },
+    });
+    mkdirSync(dirname(sourceAgent), { recursive: true });
+    writeFileSync(
+      sourceAgent,
+      '---\nname: mapped-agent\ndescription: Omits disabled mappings\nmodel: opus\neffort: max\n---\n\n# Mapped agent\n',
+    );
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.equal(existsSync(join(environment.home, '.claude', 'agents', 'mapped-agent.md')), true);
+    assert.equal(existsSync(join(environment.home, '.codex', 'agents', 'mapped-agent.toml')), true);
+    assert.equal(existsSync(join(environment.home, '.gemini')), false);
+  } finally {
+    environment.cleanup();
+  }
+});
+
 test('omits model and reasoning effort for agents that inherit target defaults', () => {
   const environment = createTestEnvironment();
   try {
@@ -1420,6 +1514,44 @@ for (const invalidConfig of [
 
       assert.notEqual(result.status, 0);
       assert.match(result.output, invalidConfig.error);
+      assert.deepEqual(snapshotDirectory(environment.home), homeBefore);
+      assert.deepEqual(backupDirectories(environment.repository), []);
+    } finally {
+      environment.cleanup();
+    }
+  });
+}
+
+for (const invalidProviders of [
+  {
+    name: 'an unsupported provider',
+    value: { unsupported: true },
+    error: /Unsupported provider "unsupported"/,
+  },
+  {
+    name: 'a non-boolean provider value',
+    value: { antigravity: 'true' },
+    error: /Invalid provider setting "antigravity". Expected a boolean/,
+  },
+  {
+    name: 'a non-object value',
+    value: ['claude'],
+    error: /Invalid providers. Expected an object with supported provider names as boolean values/,
+  },
+]) {
+  test(`invalid providers with ${invalidProviders.name} fail before writing global settings or backups`, () => {
+    const environment = createTestEnvironment();
+    try {
+      const codexInstructions = join(environment.home, '.codex', 'AGENTS.md');
+      mkdirSync(dirname(codexInstructions), { recursive: true });
+      writeFileSync(codexInstructions, '## Local Codex instructions\nKeep unchanged.\n');
+      writeSyncConfig(environment.repository, { providers: invalidProviders.value });
+      const homeBefore = snapshotDirectory(environment.home);
+
+      const result = runSync(environment);
+
+      assert.notEqual(result.status, 0);
+      assert.match(result.output, invalidProviders.error);
       assert.deepEqual(snapshotDirectory(environment.home), homeBefore);
       assert.deepEqual(backupDirectories(environment.repository), []);
     } finally {
