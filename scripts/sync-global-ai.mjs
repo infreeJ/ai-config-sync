@@ -44,14 +44,22 @@ const DEFAULT_CONFIG = {
   preCommitSync: 'off',
   backup: 'on',
   backupRetentionCount: 10,
-  codexAgentDefaults: {
-    model: 'gpt-5',
-    reasoningEffort: 'high',
+  providers: {
+    claude: true,
+    codex: true,
+    antigravity: false,
   },
-  codexAgentModelMap: {
-    opus: { model: 'gpt-5', reasoningEffort: 'xhigh' },
-    sonnet: { model: 'gpt-5', reasoningEffort: 'high' },
-    haiku: { model: 'gpt-5', reasoningEffort: 'medium' },
+  agentModelMap: {
+    opus: { claude: 'opus', codex: 'gpt-5.6-sol', antigravity: 'pro' },
+    sonnet: { claude: 'sonnet', codex: 'gpt-5.6-terra', antigravity: 'pro' },
+    haiku: { claude: 'haiku', codex: 'gpt-5.6-terra', antigravity: 'flash' },
+  },
+  agentEffortMap: {
+    low: { claude: 'low', codex: 'low', antigravity: '' },
+    medium: { claude: 'medium', codex: 'medium', antigravity: '' },
+    high: { claude: 'high', codex: 'high', antigravity: '' },
+    xhigh: { claude: 'xhigh', codex: 'xhigh', antigravity: '' },
+    max: { claude: 'max', codex: 'max', antigravity: '' },
   },
 };
 
@@ -78,15 +86,43 @@ const TARGETS = {
     root: join(home, '.agents'),
     skills: join(home, '.agents', 'skills'),
   },
+  antigravity: {
+    root: join(home, '.gemini', 'config'),
+    agents: join(home, '.gemini', 'config', 'agents'),
+  },
+  antigravityInstructions: {
+    root: join(home, '.gemini'),
+    geminiMd: join(home, '.gemini', 'GEMINI.md'),
+    geminiSyncMd: join(home, '.gemini', 'GEMINI-sync.md'),
+  },
+  antigravitySkills: {
+    root: join(home, '.gemini', 'antigravity-cli'),
+    skills: join(home, '.gemini', 'antigravity-cli', 'skills'),
+  },
 };
 
 const BACKUP_SPECS = [
-  { source: TARGETS.codex.agentsMd, destination: join('.codex', 'AGENTS.md') },
-  { source: TARGETS.claude.claudeMd, destination: join('.claude', 'CLAUDE.md') },
-  { source: TARGETS.claude.skills, destination: join('.claude', 'skills') },
-  { source: TARGETS.codexSkills.skills, destination: join('.agents', 'skills') },
-  { source: TARGETS.claude.agents, destination: join('.claude', 'agents') },
-  { source: TARGETS.codex.agents, destination: join('.codex', 'agents') },
+  { provider: 'codex', source: TARGETS.codex.agentsMd, destination: join('.codex', 'AGENTS.md') },
+  { provider: 'claude', source: TARGETS.claude.claudeMd, destination: join('.claude', 'CLAUDE.md') },
+  {
+    provider: 'antigravity',
+    source: TARGETS.antigravityInstructions.geminiMd,
+    destination: join('.gemini', 'GEMINI.md'),
+  },
+  { provider: 'claude', source: TARGETS.claude.skills, destination: join('.claude', 'skills') },
+  { provider: 'codex', source: TARGETS.codexSkills.skills, destination: join('.agents', 'skills') },
+  { provider: 'claude', source: TARGETS.claude.agents, destination: join('.claude', 'agents') },
+  { provider: 'codex', source: TARGETS.codex.agents, destination: join('.codex', 'agents') },
+  {
+    provider: 'antigravity',
+    source: TARGETS.antigravity.agents,
+    destination: join('.gemini', 'config', 'agents'),
+  },
+  {
+    provider: 'antigravity',
+    source: TARGETS.antigravitySkills.skills,
+    destination: join('.gemini', 'antigravity-cli', 'skills'),
+  },
 ];
 
 const HEADER = 'AUTO-GENERATED from ai-config-sync. Edit the source under sources/.';
@@ -96,6 +132,12 @@ const MANAGED_INSTRUCTION_SOURCE = `<!-- AUTO-GENERATED from ${SOURCE_ROOT} -->`
 const INSTRUCTION_MODES = new Set(['append', 'off', 'sidecar', 'managed']);
 const PRE_COMMIT_SYNC_MODES = new Set(['on', 'off']);
 const BACKUP_MODES = new Set(['on', 'off']);
+const PROVIDER_NAMES = new Set(['claude', 'codex', 'antigravity']);
+const SKILL_FRONTMATTER_FIELDS = new Set(['name', 'description']);
+const AGENT_FRONTMATTER_FIELDS = new Set(['name', 'description', 'model', 'effort']);
+const CLAUDE_AGENT_MODELS = new Set(['opus', 'sonnet', 'haiku']);
+const CLAUDE_REASONING_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+const CODEX_REASONING_EFFORTS = new Set(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
 const BACKUP_DIRECTORY_NAME = /^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)(?:-(\d+))?$/;
 let DRY_RUN = true;
 let stats;
@@ -134,15 +176,25 @@ function readConfig() {
   return {
     ...DEFAULT_CONFIG,
     ...userConfig,
-    codexAgentDefaults: {
-      ...DEFAULT_CONFIG.codexAgentDefaults,
-      ...(userConfig.codexAgentDefaults || {}),
+    agentModelMap: {
+      ...DEFAULT_CONFIG.agentModelMap,
+      ...(userConfig.agentModelMap || {}),
     },
-    codexAgentModelMap: {
-      ...DEFAULT_CONFIG.codexAgentModelMap,
-      ...(userConfig.codexAgentModelMap || {}),
+    agentEffortMap: {
+      ...DEFAULT_CONFIG.agentEffortMap,
+      ...(userConfig.agentEffortMap || {}),
     },
+    providers:
+      userConfig.providers === undefined
+        ? DEFAULT_CONFIG.providers
+        : isProviderConfig(userConfig.providers)
+          ? { ...DEFAULT_CONFIG.providers, ...userConfig.providers }
+          : userConfig.providers,
   };
+}
+
+function isProviderConfig(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 const config = readConfig();
@@ -160,10 +212,26 @@ if (!BACKUP_MODES.has(config.backup)) {
 if (!Number.isInteger(config.backupRetentionCount) || config.backupRetentionCount < 1) {
   throw new Error('Invalid backupRetentionCount. Expected an integer greater than or equal to 1.');
 }
+if (!isProviderConfig(config.providers)) {
+  throw new Error('Invalid providers. Expected an object with supported provider names as boolean values.');
+}
+for (const [provider, enabled] of Object.entries(config.providers)) {
+  if (!PROVIDER_NAMES.has(provider)) {
+    throw new Error(`Unsupported provider "${provider}". Expected one of: ${[...PROVIDER_NAMES].join(', ')}.`);
+  }
+  if (typeof enabled !== 'boolean') {
+    throw new Error(`Invalid provider setting "${provider}". Expected a boolean.`);
+  }
+}
 const instructionMode = config.instructionsMode;
 const preCommitSync = config.preCommitSync;
 const backup = config.backup;
 const backupRetentionCount = config.backupRetentionCount;
+const providers = config.providers;
+
+function isProviderEnabled(provider) {
+  return providers[provider];
+}
 
 function instructionSpecsForMode(mode) {
   if (mode === 'off') return [];
@@ -173,26 +241,37 @@ function instructionSpecsForMode(mode) {
       ? {
           codex: TARGETS.codex.agentsMd,
           claude: TARGETS.claude.claudeMd,
+          antigravity: TARGETS.antigravityInstructions.geminiMd,
         }
       : {
           codex: TARGETS.codex.agentsSyncMd,
           claude: TARGETS.claude.claudeSyncMd,
+          antigravity: TARGETS.antigravityInstructions.geminiSyncMd,
         };
 
   return [
     {
+      provider: 'codex',
       name: 'AGENTS.md',
       source: join(SOURCE_ROOT, 'AGENTS.md'),
       target: TARGETS.codex,
       destination: destinations.codex,
     },
     {
+      provider: 'claude',
       name: 'CLAUDE.md',
       source: join(SOURCE_ROOT, 'CLAUDE.md'),
       target: TARGETS.claude,
       destination: destinations.claude,
     },
-  ];
+    {
+      provider: 'antigravity',
+      name: 'GEMINI.md',
+      source: join(SOURCE_ROOT, 'GEMINI.md'),
+      target: TARGETS.antigravityInstructions,
+      destination: destinations.antigravity,
+    },
+  ].filter((spec) => isProviderEnabled(spec.provider));
 }
 
 const instructionSpecs = instructionSpecsForMode(instructionMode);
@@ -364,6 +443,7 @@ function backupGlobalSettings() {
   const backupDirectory = createBackupDirectory();
 
   for (const spec of BACKUP_SPECS) {
+    if (!isProviderEnabled(spec.provider)) continue;
     if (!existsSync(spec.source)) continue;
 
     const destination = join(backupDirectory.directory, spec.destination);
@@ -486,42 +566,258 @@ function syncInstructions() {
   return count;
 }
 
-function parseFrontmatter(text) {
-  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
-  if (!match) return { meta: {}, body: text };
+function parseQuotedScalar(rawValue, quote, sourcePath, lineNumber) {
+  let value = '';
+  let doubleQuotedLiteral = quote;
+  let index = 1;
+  while (index < rawValue.length) {
+    const character = rawValue[index];
+    if (quote === '"' && character === '\\') {
+      if (index + 1 === rawValue.length) {
+        throw new Error(`Invalid frontmatter in ${sourcePath} at line ${lineNumber}: unterminated quoted value.`);
+      }
+      doubleQuotedLiteral += `${character}${rawValue[index + 1]}`;
+      index += 2;
+      continue;
+    }
+    if (character !== quote) {
+      value += character;
+      doubleQuotedLiteral += character;
+      index += 1;
+      continue;
+    }
+
+    if (quote === "'" && rawValue[index + 1] === "'") {
+      value += "'";
+      index += 2;
+      continue;
+    }
+    break;
+  }
+
+  if (index === rawValue.length) {
+    throw new Error(`Invalid frontmatter in ${sourcePath} at line ${lineNumber}: unterminated quoted value.`);
+  }
+
+  const remainder = rawValue.slice(index + 1).trim();
+  if (remainder !== '' && !remainder.startsWith('#')) {
+    throw new Error(`Invalid frontmatter in ${sourcePath} at line ${lineNumber}: invalid quoted value.`);
+  }
+  if (quote === '"') {
+    try {
+      return JSON.parse(`${doubleQuotedLiteral}"`);
+    } catch {
+      throw new Error(`Invalid frontmatter in ${sourcePath} at line ${lineNumber}: invalid quoted value.`);
+    }
+  }
+  return value;
+}
+
+function parseScalar(rawValue, sourcePath, lineNumber) {
+  const value = rawValue.trim();
+  if (value.startsWith('"') || value.startsWith("'")) {
+    return parseQuotedScalar(value, value[0], sourcePath, lineNumber);
+  }
+  if (value.startsWith('#')) return '';
+  return value.replace(/\s+#.*$/, '').trim();
+}
+
+function parseFrontmatter(text, sourcePath = 'source file') {
+  if (!text.startsWith('---\n') && !text.startsWith('---\r\n')) {
+    return { meta: {}, body: text };
+  }
+
+  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/);
+  if (!match) {
+    throw new Error(`Invalid frontmatter in ${sourcePath}: missing closing --- delimiter.`);
+  }
 
   const meta = {};
-  for (const line of match[1].split(/\r?\n/)) {
+  for (const [index, line] of match[1].split(/\r?\n/).entries()) {
+    if (line.trim() === '' || line.trimStart().startsWith('#')) continue;
     const kv = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-    if (kv) meta[kv[1]] = kv[2].replace(/^['"]|['"]$/g, '').trim();
+    if (!kv) {
+      throw new Error(`Invalid frontmatter in ${sourcePath} at line ${index + 2}: ${line}`);
+    }
+    if (Object.hasOwn(meta, kv[1])) {
+      throw new Error(`Invalid frontmatter in ${sourcePath}: duplicate field "${kv[1]}".`);
+    }
+    meta[kv[1]] = parseScalar(kv[2], sourcePath, index + 2);
   }
   return { meta, body: match[2] };
+}
+
+function validateFrontmatter(text, sourcePath, kind, allowedFields) {
+  const frontmatter = parseFrontmatter(text, sourcePath);
+  for (const field of Object.keys(frontmatter.meta)) {
+    if (!allowedFields.has(field)) {
+      throw new Error(`Unsupported ${kind} frontmatter field "${field}" in ${sourcePath}.`);
+    }
+  }
+  for (const field of ['name', 'description']) {
+    if (!frontmatter.meta[field]) {
+      throw new Error(`Invalid ${kind} frontmatter in ${sourcePath}: "${field}" is required.`);
+    }
+  }
+  return frontmatter;
+}
+
+function validateSourceFrontmatter() {
+  for (const entry of listEntries(SOURCE_SKILLS)) {
+    if (!entry.stat.isDirectory()) continue;
+    const skillFile = join(entry.path, 'SKILL.md');
+    if (!existsSync(skillFile) || !statSync(skillFile).isFile()) continue;
+    validateFrontmatter(readFileSync(skillFile, 'utf8'), skillFile, 'skill', SKILL_FRONTMATTER_FIELDS);
+  }
+
+  for (const entry of listEntries(SOURCE_AGENTS)) {
+    if (!entry.stat.isFile() || !entry.name.toLowerCase().endsWith('.md')) continue;
+    const frontmatter = validateFrontmatter(
+      readFileSync(entry.path, 'utf8'),
+      entry.path,
+      'agent',
+      AGENT_FRONTMATTER_FIELDS,
+    );
+    validateAgentMappings(frontmatter.meta, entry.path);
+  }
 }
 
 function tomlString(value) {
   return JSON.stringify(String(value));
 }
 
+function validateAgentModelMapping(meta, sourcePath) {
+  if (!meta.model) return;
+
+  if (!CLAUDE_AGENT_MODELS.has(meta.model)) {
+    throw new Error(
+      `Invalid source model "${meta.model}" in ${sourcePath}. Expected one of: ${[...CLAUDE_AGENT_MODELS].join(', ')}.`,
+    );
+  }
+
+  const mapped = config.agentModelMap[meta.model];
+  if (
+    (isProviderEnabled('claude') || isProviderEnabled('codex') || isProviderEnabled('antigravity')) &&
+    (!mapped || typeof mapped !== 'object')
+  ) {
+    throw new Error(`Missing agent model mapping for "${meta.model}" in ${sourcePath}.`);
+  }
+  if (isProviderEnabled('claude')) {
+    if (typeof mapped.claude !== 'string' || mapped.claude === '') {
+      throw new Error(`Missing Claude model mapping for "${meta.model}" in ${sourcePath}.`);
+    }
+    if (!CLAUDE_AGENT_MODELS.has(mapped.claude)) {
+      throw new Error(
+        `Invalid Claude model mapping for "${meta.model}" in ${sourcePath}. Expected one of: ${[...CLAUDE_AGENT_MODELS].join(', ')}.`,
+      );
+    }
+  }
+  if (isProviderEnabled('codex')) {
+    if (typeof mapped.codex !== 'string') {
+      throw new Error(`Missing Codex model mapping for "${meta.model}" in ${sourcePath}.`);
+    }
+    if (mapped.codex.trim() === '') {
+      throw new Error(`Invalid Codex model mapping for "${meta.model}" in ${sourcePath}. Expected a non-empty string.`);
+    }
+  }
+  if (isProviderEnabled('antigravity')) {
+    if (typeof mapped.antigravity !== 'string' || mapped.antigravity === '') {
+      throw new Error(`Missing Antigravity model mapping for "${meta.model}" in ${sourcePath}.`);
+    }
+    if (!['flash', 'pro'].includes(mapped.antigravity)) {
+      throw new Error(
+        `Invalid Antigravity model mapping for "${meta.model}" in ${sourcePath}. Expected "flash" or "pro".`,
+      );
+    }
+  }
+}
+
+function validateAgentEffortMapping(meta, sourcePath) {
+  if (!meta.effort) return;
+
+  if (!CLAUDE_REASONING_EFFORTS.has(meta.effort)) {
+    throw new Error(
+      `Invalid source reasoning effort "${meta.effort}" in ${sourcePath}. Expected one of: ${[...CLAUDE_REASONING_EFFORTS].join(', ')}.`,
+    );
+  }
+  const mapped = config.agentEffortMap[meta.effort];
+  if (
+    (isProviderEnabled('claude') || isProviderEnabled('codex')) &&
+    (!mapped || typeof mapped !== 'object')
+  ) {
+    throw new Error(`Missing agent reasoning effort mapping for "${meta.effort}" in ${sourcePath}.`);
+  }
+  if (isProviderEnabled('claude')) {
+    if (typeof mapped.claude !== 'string' || mapped.claude === '') {
+      throw new Error(`Missing Claude reasoning effort mapping for "${meta.effort}" in ${sourcePath}.`);
+    }
+    if (!CLAUDE_REASONING_EFFORTS.has(mapped.claude)) {
+      throw new Error(
+        `Invalid Claude reasoning effort mapping for "${meta.effort}" in ${sourcePath}. Expected one of: ${[...CLAUDE_REASONING_EFFORTS].join(', ')}.`,
+      );
+    }
+  }
+  if (isProviderEnabled('codex')) {
+    if (typeof mapped.codex !== 'string' || mapped.codex === '') {
+      throw new Error(`Missing Codex reasoning effort mapping for "${meta.effort}" in ${sourcePath}.`);
+    }
+    if (!CODEX_REASONING_EFFORTS.has(mapped.codex)) {
+      throw new Error(
+        `Invalid Codex reasoning effort mapping for "${meta.effort}" in ${sourcePath}. Expected one of: ${[...CODEX_REASONING_EFFORTS].join(', ')}.`,
+      );
+    }
+  }
+}
+
+function validateAgentMappings(meta, sourcePath) {
+  validateAgentModelMapping(meta, sourcePath);
+  validateAgentEffortMapping(meta, sourcePath);
+}
+
+function agentModelMapping(meta) {
+  return meta.model ? config.agentModelMap[meta.model] : undefined;
+}
+
+function agentEffortMapping(meta) {
+  return meta.effort ? config.agentEffortMap[meta.effort] : undefined;
+}
+
+function claudeAgentMarkdown(markdown) {
+  const { meta } = parseFrontmatter(markdown);
+  const mapped = agentModelMapping(meta);
+  const mappedEffort = agentEffortMapping(meta);
+  let output = markdown;
+  if (mapped) output = output.replace(/^(\s*model\s*:\s*).+$/m, `$1${mapped.claude}`);
+  if (mappedEffort) output = output.replace(/^(\s*effort\s*:\s*).+$/m, `$1${mappedEffort.claude}`);
+  return output;
+}
+
 function codexAgentToml(name, markdown) {
   const { meta, body } = parseFrontmatter(markdown);
-  const modelKey = meta.model;
-  const mapped = modelKey ? config.codexAgentModelMap[modelKey] : undefined;
-  const agentConfig = {
-    ...config.codexAgentDefaults,
-    ...(mapped || {}),
-  };
+  const mapped = agentModelMapping(meta);
+  const mappedEffort = agentEffortMapping(meta);
   const description = meta.description || '';
   const instructions = body.replace(/^\r?\n+/, '').replace(/\s+$/, '');
 
-  return [
+  const lines = [
     `# ${HEADER}`,
     `name = ${tomlString(name)}`,
     `description = ${tomlString(description)}`,
-    `model = ${tomlString(agentConfig.model)}`,
-    `model_reasoning_effort = ${tomlString(agentConfig.reasoningEffort)}`,
-    `developer_instructions = ${tomlString(instructions)}`,
-    '',
-  ].join('\n');
+  ];
+  if (mapped) lines.push(`model = ${tomlString(mapped.codex)}`);
+  if (mappedEffort) lines.push(`model_reasoning_effort = ${tomlString(mappedEffort.codex)}`);
+  lines.push(`developer_instructions = ${tomlString(instructions)}`, '');
+  return lines.join('\n');
+}
+
+function antigravityAgentMarkdown(markdown) {
+  const { meta, body } = parseFrontmatter(markdown);
+  const mapped = agentModelMapping(meta);
+  const instructions = body.replace(/^\r?\n+/, '').replace(/\s+$/, '');
+  const lines = ['---', `name: ${JSON.stringify(meta.name)}`, `description: ${JSON.stringify(meta.description)}`];
+  if (mapped) lines.push(`model: ${mapped.antigravity}`);
+  lines.push('---', '', instructions, '');
+  return lines.join('\n');
 }
 
 function replaceSkill(name, sourceDir, target) {
@@ -536,6 +832,24 @@ function replaceSkill(name, sourceDir, target) {
   copyDirectory(sourceDir, destination, target.root);
 }
 
+function clearAntigravityLegacySkillFile(name) {
+  const legacyPath = join(TARGETS.antigravitySkills.skills, `${name}.md`);
+  if (!existsSync(legacyPath)) return;
+
+  if (!statSync(legacyPath).isFile()) {
+    recordSkip(`skill ${name}: preserving legacy target because it is not a file`);
+    return;
+  }
+
+  recordOperation('skills', 'overwrite', `stale ${basename(legacyPath)}`, legacyPath);
+  removeIfExists(legacyPath, TARGETS.antigravitySkills.root);
+}
+
+function replaceAntigravitySkill(name, sourceDirectory) {
+  clearAntigravityLegacySkillFile(name);
+  replaceSkill(name, sourceDirectory, TARGETS.antigravitySkills);
+}
+
 function syncSkills() {
   let count = 0;
   for (const entry of listEntries(SOURCE_SKILLS)) {
@@ -544,9 +858,19 @@ function syncSkills() {
       continue;
     }
 
-    for (const target of [TARGETS.claude, TARGETS.codexSkills]) {
-      ensureTargetRoot(target);
-      replaceSkill(entry.name, entry.path, target);
+    if (isProviderEnabled('claude')) {
+      ensureTargetRoot(TARGETS.claude);
+      replaceSkill(entry.name, entry.path, TARGETS.claude);
+    }
+    if (isProviderEnabled('codex')) {
+      ensureTargetRoot(TARGETS.codexSkills);
+      replaceSkill(entry.name, entry.path, TARGETS.codexSkills);
+    }
+
+    const sourceSkillFile = join(entry.path, 'SKILL.md');
+    if (isProviderEnabled('antigravity') && existsSync(sourceSkillFile) && statSync(sourceSkillFile).isFile()) {
+      ensureTargetRoot(TARGETS.antigravitySkills);
+      replaceAntigravitySkill(entry.name, entry.path);
     }
     count += 1;
   }
@@ -554,12 +878,20 @@ function syncSkills() {
 }
 
 function clearAgentName(target, name, keepPath) {
+  const keepDirectory = keepPath ? dirname(keepPath) : undefined;
   for (const candidate of [
     join(target.agents, `${name}.md`),
     join(target.agents, `${name}.toml`),
     join(target.agents, name),
   ]) {
     if (keepPath && resolve(candidate) === resolve(keepPath)) continue;
+    if (keepDirectory && resolve(candidate) === resolve(keepDirectory)) {
+      if (existsSync(candidate) && !statSync(candidate).isDirectory()) {
+        recordOperation('agents', 'overwrite', `stale ${basename(candidate)}`, candidate);
+        removeIfExists(candidate, target.root);
+      }
+      continue;
+    }
     if (existsSync(candidate)) {
       recordOperation('agents', 'overwrite', `stale ${basename(candidate)}`, candidate);
       removeIfExists(candidate, target.root);
@@ -571,21 +903,40 @@ function syncMarkdownAgent(entry) {
   const name = basename(entry.name, '.md');
   const markdown = readFileSync(entry.path, 'utf8');
 
-  ensureTargetRoot(TARGETS.claude);
-  const claudeDestination = join(TARGETS.claude.agents, `${name}.md`);
-  clearAgentName(TARGETS.claude, name, claudeDestination);
-  writeFile(claudeDestination, markdown, TARGETS.claude.root, {
-    section: 'agents',
-    label: entry.name,
-  });
+  if (isProviderEnabled('claude')) {
+    ensureTargetRoot(TARGETS.claude);
+    const claudeDestination = join(TARGETS.claude.agents, `${name}.md`);
+    clearAgentName(TARGETS.claude, name, claudeDestination);
+    writeFile(claudeDestination, claudeAgentMarkdown(markdown), TARGETS.claude.root, {
+      section: 'agents',
+      label: entry.name,
+    });
+  }
 
-  ensureTargetRoot(TARGETS.codex);
-  const codexDestination = join(TARGETS.codex.agents, `${name}.toml`);
-  clearAgentName(TARGETS.codex, name, codexDestination);
-  writeFile(codexDestination, codexAgentToml(name, markdown), TARGETS.codex.root, {
-    section: 'agents',
-    label: entry.name,
-  });
+  if (isProviderEnabled('codex')) {
+    ensureTargetRoot(TARGETS.codex);
+    const codexDestination = join(TARGETS.codex.agents, `${name}.toml`);
+    clearAgentName(TARGETS.codex, name, codexDestination);
+    writeFile(codexDestination, codexAgentToml(name, markdown), TARGETS.codex.root, {
+      section: 'agents',
+      label: entry.name,
+    });
+  }
+
+  if (isProviderEnabled('antigravity')) {
+    ensureTargetRoot(TARGETS.antigravity);
+    const antigravityDestination = join(TARGETS.antigravity.agents, name, 'agent.md');
+    clearAgentName(TARGETS.antigravity, name, antigravityDestination);
+    writeFile(
+      antigravityDestination,
+      antigravityAgentMarkdown(markdown),
+      TARGETS.antigravity.root,
+      {
+        section: 'agents',
+        label: entry.name,
+      },
+    );
+  }
 }
 
 function syncAgents() {
@@ -729,13 +1080,15 @@ async function main() {
     throw new Error(`Source directory is missing: ${SOURCE_ROOT}. Run: npm run init`);
   }
 
-  if (DRY_RUN_REQUESTED) {
-    runSync(true);
+  if (PRE_COMMIT_REQUESTED && preCommitSync === 'off') {
+    console.log('[sync-global-ai] pre-commit sync skipped because preCommitSync is off.');
     return;
   }
 
-  if (PRE_COMMIT_REQUESTED && preCommitSync === 'off') {
-    console.log('[sync-global-ai] pre-commit sync skipped because preCommitSync is off.');
+  validateSourceFrontmatter();
+
+  if (DRY_RUN_REQUESTED) {
+    runSync(true);
     return;
   }
 
