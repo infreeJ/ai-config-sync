@@ -40,16 +40,6 @@
       "claude": "high",
       "codex": "high",
       "antigravity": ""
-    },
-    "xhigh": {
-      "claude": "xhigh",
-      "codex": "xhigh",
-      "antigravity": ""
-    },
-    "max": {
-      "claude": "max",
-      "codex": "max",
-      "antigravity": ""
     }
   }
 }

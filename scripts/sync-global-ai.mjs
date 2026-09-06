@@ -58,8 +58,6 @@ const DEFAULT_CONFIG = {
     low: { claude: 'low', codex: 'low', antigravity: '' },
     medium: { claude: 'medium', codex: 'medium', antigravity: '' },
     high: { claude: 'high', codex: 'high', antigravity: '' },
-    xhigh: { claude: 'xhigh', codex: 'xhigh', antigravity: '' },
-    max: { claude: 'max', codex: 'max', antigravity: '' },
   },
 };
 
@@ -136,6 +134,7 @@ const PROVIDER_NAMES = new Set(['claude', 'codex', 'antigravity']);
 const SKILL_FRONTMATTER_FIELDS = new Set(['name', 'description']);
 const AGENT_FRONTMATTER_FIELDS = new Set(['name', 'description', 'model', 'effort']);
 const MODEL_PRESETS = new Set(['flagship', 'balanced', 'fast']);
+const EFFORT_PRESETS = new Set(['low', 'medium', 'high']);
 const CLAUDE_AGENT_MODELS = new Set(['opus', 'sonnet', 'haiku']);
 const CLAUDE_REASONING_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 const CODEX_REASONING_EFFORTS = new Set(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
@@ -736,9 +735,9 @@ function validateAgentModelMapping(meta, sourcePath) {
 function validateAgentEffortMapping(meta, sourcePath) {
   if (!meta.effort) return;
 
-  if (!CLAUDE_REASONING_EFFORTS.has(meta.effort)) {
+  if (!EFFORT_PRESETS.has(meta.effort)) {
     throw new Error(
-      `Invalid source reasoning effort "${meta.effort}" in ${sourcePath}. Expected one of: ${[...CLAUDE_REASONING_EFFORTS].join(', ')}.`,
+      `Invalid source effort preset "${meta.effort}" in ${sourcePath}. Expected one of: ${[...EFFORT_PRESETS].join(', ')}.`,
     );
   }
   const mapped = config.effortPresets[meta.effort];

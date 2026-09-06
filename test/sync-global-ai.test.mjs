@@ -856,7 +856,7 @@ test('syncs nested skills to every target while migrating legacy Antigravity ski
       'name: review-agent',
       'description: Reviews implementation changes',
       'model: flagship',
-      'effort: max',
+      'effort: high',
       '---',
       '',
       '# Review agent',
@@ -932,7 +932,7 @@ test('syncs nested skills to every target while migrating legacy Antigravity ski
     assert.match(readFileSync(codexAgent, 'utf8'), /name = "review-agent"/);
     assert.match(readFileSync(codexAgent, 'utf8'), /description = "Reviews implementation changes"/);
     assert.match(readFileSync(codexAgent, 'utf8'), /model = "gpt-5\.6-sol"/);
-    assert.match(readFileSync(codexAgent, 'utf8'), /model_reasoning_effort = "max"/);
+    assert.match(readFileSync(codexAgent, 'utf8'), /model_reasoning_effort = "high"/);
     assert.match(readFileSync(codexAgent, 'utf8'), /developer_instructions = "# Review agent\\n\\nInspect the requested implementation\."/);
     assert.equal(
       readFileSync(antigravityAgent, 'utf8'),
@@ -1060,13 +1060,13 @@ test('disabled provider mappings are not required for agent sync', () => {
         flagship: { claude: 'opus', codex: 'gpt-5.6-sol' },
       },
       effortPresets: {
-        max: { claude: 'max', codex: 'max' },
+        high: { claude: 'high', codex: 'high' },
       },
     });
     mkdirSync(dirname(sourceAgent), { recursive: true });
     writeFileSync(
       sourceAgent,
-      '---\nname: mapped-agent\ndescription: Omits disabled mappings\nmodel: flagship\neffort: max\n---\n\n# Mapped agent\n',
+      '---\nname: mapped-agent\ndescription: Omits disabled mappings\nmodel: flagship\neffort: high\n---\n\n# Mapped agent\n',
     );
 
     const result = runSync(environment);
@@ -1095,12 +1095,12 @@ test('Antigravity-only sync does not require reasoning effort mappings', () => {
     writeSyncConfig(environment.repository, {
       instructionsMode: 'off',
       providers: { claude: false, codex: false, antigravity: true },
-      effortPresets: { max: null },
+      effortPresets: { high: null },
     });
     mkdirSync(dirname(sourceAgent), { recursive: true });
     writeFileSync(
       sourceAgent,
-      '---\nname: antigravity-agent\ndescription: Does not use effort mappings\neffort: max\n---\n\n# Antigravity agent\n',
+      '---\nname: antigravity-agent\ndescription: Does not use effort mappings\neffort: high\n---\n\n# Antigravity agent\n',
     );
 
     const result = runSync(environment);
@@ -1183,6 +1183,34 @@ test('maps agent reasoning effort for Claude and Codex independently', () => {
     assert.match(readFileSync(claudeAgent, 'utf8'), /^effort: xhigh$/m);
     assert.match(readFileSync(codexAgent, 'utf8'), /model_reasoning_effort = "none"/);
     assert.doesNotMatch(readFileSync(antigravityAgent, 'utf8'), /^effort:/m);
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('allows a high effort preset to map to maximum provider efforts', () => {
+  const environment = createTestEnvironment({ enableAllProviders: false });
+  try {
+    const sourceAgent = join(environment.repository, 'sources', 'agents', 'maximum-effort-agent.md');
+    const claudeAgent = join(environment.home, '.claude', 'agents', 'maximum-effort-agent.md');
+    const codexAgent = join(environment.home, '.codex', 'agents', 'maximum-effort-agent.toml');
+    writeSyncConfig(environment.repository, {
+      instructionsMode: 'off',
+      effortPresets: {
+        high: { claude: 'max', codex: 'max' },
+      },
+    });
+    mkdirSync(dirname(sourceAgent), { recursive: true });
+    writeFileSync(
+      sourceAgent,
+      '---\nname: maximum-effort-agent\ndescription: Maps a preset to maximum provider efforts\neffort: high\n---\n\n# Maximum effort agent\n',
+    );
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(readFileSync(claudeAgent, 'utf8'), /^effort: max$/m);
+    assert.match(readFileSync(codexAgent, 'utf8'), /model_reasoning_effort = "max"/);
   } finally {
     environment.cleanup();
   }
@@ -1348,53 +1376,63 @@ for (const invalidMapping of [
   },
   {
     name: 'missing source reasoning effort mapping',
-    frontmatter: 'effort: max',
+    frontmatter: 'effort: high',
     config: {
       effortPresets: {
-        max: null,
+        high: null,
       },
     },
-    error: /Missing effort preset mapping for "max"/,
+    error: /Missing effort preset mapping for "high"/,
   },
   {
-    name: 'invalid source reasoning effort',
+    name: 'invalid source effort preset',
     frontmatter: 'effort: unmapped-effort',
     config: {
       effortPresets: {
         'unmapped-effort': { claude: 'high', codex: 'high' },
       },
     },
-    error: /Invalid source reasoning effort "unmapped-effort".*Expected one of: low, medium, high, xhigh, max/,
+    error: /Invalid source effort preset "unmapped-effort".*Expected one of: low, medium, high/,
+  },
+  {
+    name: 'legacy xhigh source effort preset',
+    frontmatter: 'effort: xhigh',
+    error: /Invalid source effort preset "xhigh".*Expected one of: low, medium, high/,
+  },
+  {
+    name: 'legacy max source effort preset',
+    frontmatter: 'effort: max',
+    error: /Invalid source effort preset "max".*Expected one of: low, medium, high/,
   },
   {
     name: 'missing Claude reasoning effort mapping',
-    frontmatter: 'effort: max',
+    frontmatter: 'effort: high',
     config: {
       effortPresets: {
-        max: { codex: 'max' },
+        high: { codex: 'max' },
       },
     },
-    error: /Missing Claude effort preset mapping for "max"/,
+    error: /Missing Claude effort preset mapping for "high"/,
   },
   {
     name: 'invalid Claude reasoning effort mapping',
-    frontmatter: 'effort: max',
+    frontmatter: 'effort: high',
     config: {
       effortPresets: {
-        max: { claude: 'invalid', codex: 'max' },
+        high: { claude: 'invalid', codex: 'max' },
       },
     },
-    error: /Invalid Claude effort preset mapping for "max".*Expected one of: low, medium, high, xhigh, max/,
+    error: /Invalid Claude effort preset mapping for "high".*Expected one of: low, medium, high, xhigh, max/,
   },
   {
     name: 'invalid Codex reasoning effort mapping',
-    frontmatter: 'effort: max',
+    frontmatter: 'effort: high',
     config: {
       effortPresets: {
-        max: { claude: 'max', codex: 'invalid' },
+        high: { claude: 'max', codex: 'invalid' },
       },
     },
-    error: /Invalid Codex effort preset mapping for "max".*Expected one of: none, low, medium, high, xhigh, max/,
+    error: /Invalid Codex effort preset mapping for "high".*Expected one of: none, low, medium, high, xhigh, max/,
   },
 ]) {
   test(`${invalidMapping.name} aborts before writing targets or backups`, () => {
@@ -1437,7 +1475,7 @@ test('allows the documented skill and agent frontmatter fields', () => {
     );
     writeFileSync(
       join(agentDirectory, 'documented-agent.md'),
-      '---\nname: documented-agent\ndescription: Uses all shared agent metadata\nmodel: flagship\neffort: max\n---\n\n# Documented agent\n',
+      '---\nname: documented-agent\ndescription: Uses all shared agent metadata\nmodel: flagship\neffort: high\n---\n\n# Documented agent\n',
     );
 
     const result = runSync(environment);
@@ -1462,7 +1500,7 @@ test('parses inline comments and quoted scalar frontmatter values', () => {
     );
     writeFileSync(
       join(agentDirectory, 'quoted-agent.md'),
-      '---\nname: "quoted-agent" # source name\ndescription: "Reviews \\"quoted\\" changes # safely" # source description\nmodel: "flagship" # source model preset\neffort: \'max\' # source effort\n---\n\n# Quoted agent\n',
+      '---\nname: "quoted-agent" # source name\ndescription: "Reviews \\"quoted\\" changes # safely" # source description\nmodel: "flagship" # source model preset\neffort: \'high\' # source effort\n---\n\n# Quoted agent\n',
     );
 
     const result = runSync(environment);

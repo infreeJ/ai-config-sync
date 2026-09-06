@@ -183,13 +183,14 @@ Agent instructions go here.
 `model`과 `effort`는 선택 사항입니다. 생략하면 활성화한 제공자 모두 해당 필드를 출력하지 않아 부모 또는 기본 설정을 상속합니다.
 
 - 원본의 `model`에는 `flagship`, `balanced`, `fast` 중 하나를 씁니다. 이 값은 제공자에 독립적인 프리셋이며, Claude 모델 이름을 직접 쓰지 않습니다.
+- 원본의 `effort`에는 `low`, `medium`, `high` 중 하나를 씁니다. 이 값도 제공자에 독립적인 프리셋입니다.
 - Claude는 `model`과 `effort`를 각각 `modelPresets`, `effortPresets`의 `claude` 대상값으로 변환합니다.
 - Codex는 두 프리셋의 `codex` 대상값을 각각 모델과 `model_reasoning_effort`로 변환합니다.
 - Antigravity CLI는 `modelPresets`의 `antigravity` 대상 모델만 받고 `effort`는 출력하지 않습니다.
 
 `sync.config.json`의 `modelPresets`는 원본 모델 프리셋을 제공자별 실제 모델로, `effortPresets`는 원본 추론 수준을 제공자별 추론 수준으로 변환합니다. 예를 들어 `balanced` 프리셋은 Claude의 `sonnet`, Codex의 `gpt-5.6-terra`, Antigravity CLI의 `pro`로 변환됩니다. Claude의 `opus`, `sonnet`, `haiku`는 원본 `model` 키가 아니라 `modelPresets` 안의 Claude 대상값이며, `flagship`, `balanced`, `fast` 각각이 이를 가리킵니다.
 
-에이전트에 `model` 또는 `effort`를 썼다면 해당 프리셋의 매핑은 활성화한 제공자에 대해서만 필요합니다. 비활성화한 제공자의 매핑은 남겨 두거나 생략할 수 있으며 동기화에 사용하지 않습니다. Claude 모델 대상값은 `opus`, `sonnet`, `haiku` 중 하나여야 하고, Codex 모델 대상값은 비어 있지 않은 문자열이어야 합니다. Antigravity CLI 모델 대상값은 `flash` 또는 `pro`만 사용할 수 있습니다. 추론 수준의 원본 키와 Claude 대상값은 `low`, `medium`, `high`, `xhigh`, `max` 중 하나여야 하며, Codex 대상값은 `none`, `low`, `medium`, `high`, `xhigh`, `max` 중 하나여야 합니다. Antigravity CLI는 추론 수준을 받지 않으므로 `effortPresets`의 `antigravity` 값은 동기화에 사용하지 않습니다. 기본 설정 예시에서는 빈 문자열(`""`)로 두었으며, 생략해도 됩니다.
+에이전트에 `model` 또는 `effort`를 썼다면 해당 프리셋의 매핑은 활성화한 제공자에 대해서만 필요합니다. 비활성화한 제공자의 매핑은 남겨 두거나 생략할 수 있으며 동기화에 사용하지 않습니다. Claude 모델 대상값은 `opus`, `sonnet`, `haiku` 중 하나여야 하고, Codex 모델 대상값은 비어 있지 않은 문자열이어야 합니다. Antigravity CLI 모델 대상값은 `flash` 또는 `pro`만 사용할 수 있습니다. `effort` 원본 키는 `low`, `medium`, `high` 중 하나여야 합니다. 반면 제공자 대상값은 더 세분화할 수 있어 Claude 대상값은 `low`, `medium`, `high`, `xhigh`, `max`, Codex 대상값은 `none`, `low`, `medium`, `high`, `xhigh`, `max` 중 하나여야 합니다. Antigravity CLI는 추론 수준을 받지 않으므로 `effortPresets`의 `antigravity` 값은 동기화에 사용하지 않습니다. 기본 설정 예시에서는 빈 문자열(`""`)로 두었으며, 생략해도 됩니다.
 
 ```json
 {
@@ -225,22 +226,12 @@ Agent instructions go here.
       "claude": "high",
       "codex": "high",
       "antigravity": ""
-    },
-    "xhigh": {
-      "claude": "xhigh",
-      "codex": "xhigh",
-      "antigravity": ""
-    },
-    "max": {
-      "claude": "max",
-      "codex": "max",
-      "antigravity": ""
     }
   }
 }
 ```
 
-이 변경은 기존 에이전트 원본과 설정의 호환성을 깨뜨립니다. 기존 원본의 `model: opus|sonnet|haiku`는 각각 의도에 맞는 `flagship|balanced|fast`로 바꾸고, 설정의 `agentModelMap`은 `modelPresets`로, `agentEffortMap`은 `effortPresets`로 옮기세요. 이전 키를 설정 파일에 남겨도 오류가 나지 않고 무시될 수 있으므로, 마이그레이션 후에는 반드시 제거하고 `npm run sync:dry`로 결과를 확인하세요. 이전 설정의 `codexAgentDefaults`, `codexAgentModelMap`도 더 이상 사용하지 않습니다.
+이 변경은 기존 에이전트 원본과 설정의 호환성을 깨뜨립니다. 기존 원본의 `model: opus|sonnet|haiku`는 각각 의도에 맞는 `flagship|balanced|fast`로, `effort: xhigh|max`는 `high`로 바꾸세요. 설정의 `agentModelMap`은 `modelPresets`로, `agentEffortMap`은 `effortPresets`로 옮기고, 기본 `effortPresets`의 `xhigh`·`max` 항목은 제거하세요. 세분화한 대상값이 필요하면 `high` 항목의 Claude 또는 Codex 대상값으로 설정할 수 있습니다. 이전 키를 설정 파일에 남겨도 오류가 나지 않고 무시될 수 있으므로, 마이그레이션 후에는 반드시 제거하고 `npm run sync:dry`로 결과를 확인하세요. 이전 설정의 `codexAgentDefaults`, `codexAgentModelMap`도 더 이상 사용하지 않습니다.
 
 <br>
 
