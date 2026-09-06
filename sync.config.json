@@ -8,24 +8,24 @@
     "codex": true,
     "antigravity": false
   },
-  "agentModelMap": {
-    "opus": {
+  "modelPresets": {
+    "flagship": {
       "claude": "opus",
       "codex": "gpt-5.6-sol",
       "antigravity": "pro"
     },
-    "sonnet": {
+    "balanced": {
       "claude": "sonnet",
       "codex": "gpt-5.6-terra",
       "antigravity": "pro"
     },
-    "haiku": {
+    "fast": {
       "claude": "haiku",
       "codex": "gpt-5.6-luna",
       "antigravity": "flash"
     }
   },
-  "agentEffortMap": {
+  "effortPresets": {
     "low": {
       "claude": "low",
       "codex": "low",

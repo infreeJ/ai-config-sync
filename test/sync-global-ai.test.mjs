@@ -855,7 +855,7 @@ test('syncs nested skills to every target while migrating legacy Antigravity ski
       '---',
       'name: review-agent',
       'description: Reviews implementation changes',
-      'model: opus',
+      'model: flagship',
       'effort: max',
       '---',
       '',
@@ -928,7 +928,7 @@ test('syncs nested skills to every target while migrating legacy Antigravity ski
       readFileSync(join(environment.home, '.codex', 'skills', 'preserved-skill', 'SKILL.md'), 'utf8'),
       'Codex local skill\n',
     );
-    assert.equal(readFileSync(claudeAgent, 'utf8'), agentMarkdown);
+    assert.equal(readFileSync(claudeAgent, 'utf8'), agentMarkdown.replace('model: flagship', 'model: opus'));
     assert.match(readFileSync(codexAgent, 'utf8'), /name = "review-agent"/);
     assert.match(readFileSync(codexAgent, 'utf8'), /description = "Reviews implementation changes"/);
     assert.match(readFileSync(codexAgent, 'utf8'), /model = "gpt-5\.6-sol"/);
@@ -1056,17 +1056,17 @@ test('disabled provider mappings are not required for agent sync', () => {
     const sourceAgent = join(environment.repository, 'sources', 'agents', 'mapped-agent.md');
     writeSyncConfig(environment.repository, {
       instructionsMode: 'off',
-      agentModelMap: {
-        opus: { claude: 'opus', codex: 'gpt-5.6-sol' },
+      modelPresets: {
+        flagship: { claude: 'opus', codex: 'gpt-5.6-sol' },
       },
-      agentEffortMap: {
+      effortPresets: {
         max: { claude: 'max', codex: 'max' },
       },
     });
     mkdirSync(dirname(sourceAgent), { recursive: true });
     writeFileSync(
       sourceAgent,
-      '---\nname: mapped-agent\ndescription: Omits disabled mappings\nmodel: opus\neffort: max\n---\n\n# Mapped agent\n',
+      '---\nname: mapped-agent\ndescription: Omits disabled mappings\nmodel: flagship\neffort: max\n---\n\n# Mapped agent\n',
     );
 
     const result = runSync(environment);
@@ -1095,7 +1095,7 @@ test('Antigravity-only sync does not require reasoning effort mappings', () => {
     writeSyncConfig(environment.repository, {
       instructionsMode: 'off',
       providers: { claude: false, codex: false, antigravity: true },
-      agentEffortMap: { max: null },
+      effortPresets: { max: null },
     });
     mkdirSync(dirname(sourceAgent), { recursive: true });
     writeFileSync(
@@ -1170,7 +1170,7 @@ test('maps agent reasoning effort for Claude and Codex independently', () => {
     ].join('\n');
     writeSyncConfig(environment.repository, {
       instructionsMode: 'off',
-      agentEffortMap: {
+      effortPresets: {
         high: { claude: 'xhigh', codex: 'none', antigravity: '' },
       },
     });
@@ -1199,7 +1199,7 @@ test('maps agent models for Claude, Codex, and Antigravity independently', () =>
       '---',
       'name: mapped-model-agent',
       'description: Maps models independently for each target',
-      'model: opus',
+      'model: flagship',
       '---',
       '',
       '# Mapped model agent',
@@ -1207,8 +1207,8 @@ test('maps agent models for Claude, Codex, and Antigravity independently', () =>
     ].join('\n');
     writeSyncConfig(environment.repository, {
       instructionsMode: 'off',
-      agentModelMap: {
-        opus: { claude: 'sonnet', codex: 'gpt-5.6-terra', antigravity: 'flash' },
+      modelPresets: {
+        flagship: { claude: 'sonnet', codex: 'gpt-5.6-terra', antigravity: 'flash' },
       },
     });
     mkdirSync(dirname(sourceAgent), { recursive: true });
@@ -1225,98 +1225,142 @@ test('maps agent models for Claude, Codex, and Antigravity independently', () =>
   }
 });
 
+test('maps every model preset to its provider-specific default model', () => {
+  const environment = createTestEnvironment();
+  try {
+    const presets = [
+      { name: 'flagship', claude: 'opus', codex: 'gpt-5.6-sol', antigravity: 'pro' },
+      { name: 'balanced', claude: 'sonnet', codex: 'gpt-5.6-terra', antigravity: 'pro' },
+      { name: 'fast', claude: 'haiku', codex: 'gpt-5.6-luna', antigravity: 'flash' },
+    ];
+    const agentDirectory = join(environment.repository, 'sources', 'agents');
+    writeSyncConfig(environment.repository, { instructionsMode: 'off' });
+    mkdirSync(agentDirectory, { recursive: true });
+
+    for (const preset of presets) {
+      writeFileSync(
+        join(agentDirectory, `${preset.name}-agent.md`),
+        `---\nname: ${preset.name}-agent\ndescription: Uses the ${preset.name} model preset\nmodel: ${preset.name}\n---\n`,
+      );
+    }
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    for (const preset of presets) {
+      assert.match(
+        readFileSync(join(environment.home, '.claude', 'agents', `${preset.name}-agent.md`), 'utf8'),
+        new RegExp(`^model: ${preset.claude}$`, 'm'),
+      );
+      assert.match(
+        readFileSync(join(environment.home, '.codex', 'agents', `${preset.name}-agent.toml`), 'utf8'),
+        new RegExp(`model = "${escapeRegExp(preset.codex)}"`),
+      );
+      assert.match(
+        readFileSync(
+          join(environment.home, '.gemini', 'config', 'agents', `${preset.name}-agent`, 'agent.md'),
+          'utf8',
+        ),
+        new RegExp(`^model: ${preset.antigravity}$`, 'm'),
+      );
+    }
+  } finally {
+    environment.cleanup();
+  }
+});
+
 for (const invalidMapping of [
   {
-    name: 'invalid source model',
-    frontmatter: 'model: unmapped-model',
+    name: 'legacy Claude source model',
+    frontmatter: 'model: opus',
     config: {},
-    error: /Invalid source model "unmapped-model".*Expected one of: opus, sonnet, haiku/,
+    error: /Invalid source model preset "opus".*Expected one of: flagship, balanced, fast/,
   },
   {
     name: 'missing source model mapping',
-    frontmatter: 'model: sonnet',
+    frontmatter: 'model: balanced',
     config: {
-      agentModelMap: {
-        sonnet: null,
+      modelPresets: {
+        balanced: null,
       },
     },
-    error: /Missing agent model mapping for "sonnet"/,
+    error: /Missing model preset mapping for "balanced"/,
   },
   {
     name: 'missing Claude model mapping',
-    frontmatter: 'model: opus',
+    frontmatter: 'model: flagship',
     config: {
-      agentModelMap: {
-        opus: { codex: 'gpt-5.6-sol', antigravity: 'pro' },
+      modelPresets: {
+        flagship: { codex: 'gpt-5.6-sol', antigravity: 'pro' },
       },
     },
-    error: /Missing Claude model mapping for "opus"/,
+    error: /Missing Claude model preset mapping for "flagship"/,
   },
   {
     name: 'invalid Claude model mapping',
-    frontmatter: 'model: opus',
+    frontmatter: 'model: flagship',
     config: {
-      agentModelMap: {
-        opus: { claude: 'invalid', codex: 'gpt-5.6-sol', antigravity: 'pro' },
+      modelPresets: {
+        flagship: { claude: 'invalid', codex: 'gpt-5.6-sol', antigravity: 'pro' },
       },
     },
-    error: /Invalid Claude model mapping for "opus".*Expected one of: opus, sonnet, haiku/,
+    error: /Invalid Claude model preset mapping for "flagship".*Expected one of: opus, sonnet, haiku/,
   },
   {
     name: 'missing Codex model mapping',
-    frontmatter: 'model: opus',
+    frontmatter: 'model: flagship',
     config: {
-      agentModelMap: {
-        opus: { claude: 'opus', antigravity: 'pro' },
+      modelPresets: {
+        flagship: { claude: 'opus', antigravity: 'pro' },
       },
     },
-    error: /Missing Codex model mapping for "opus"/,
+    error: /Missing Codex model preset mapping for "flagship"/,
   },
   {
     name: 'invalid Codex model mapping',
-    frontmatter: 'model: opus',
+    frontmatter: 'model: flagship',
     config: {
-      agentModelMap: {
-        opus: { claude: 'opus', codex: '', antigravity: 'pro' },
+      modelPresets: {
+        flagship: { claude: 'opus', codex: '', antigravity: 'pro' },
       },
     },
-    error: /Invalid Codex model mapping for "opus".*Expected a non-empty string/,
+    error: /Invalid Codex model preset mapping for "flagship".*Expected a non-empty string/,
   },
   {
     name: 'missing Antigravity model mapping',
-    frontmatter: 'model: opus',
+    frontmatter: 'model: flagship',
     config: {
-      agentModelMap: {
-        opus: { claude: 'opus', codex: 'gpt-5.6-sol' },
+      modelPresets: {
+        flagship: { claude: 'opus', codex: 'gpt-5.6-sol' },
       },
     },
-    error: /Missing Antigravity model mapping for "opus"/,
+    error: /Missing Antigravity model preset mapping for "flagship"/,
   },
   {
     name: 'invalid Antigravity model mapping',
-    frontmatter: 'model: opus',
+    frontmatter: 'model: flagship',
     config: {
-      agentModelMap: {
-        opus: { claude: 'opus', codex: 'gpt-5.6-sol', antigravity: 'invalid' },
+      modelPresets: {
+        flagship: { claude: 'opus', codex: 'gpt-5.6-sol', antigravity: 'invalid' },
       },
     },
-    error: /Invalid Antigravity model mapping for "opus".*Expected "flash" or "pro"/,
+    error: /Invalid Antigravity model preset mapping for "flagship".*Expected "flash" or "pro"/,
   },
   {
     name: 'missing source reasoning effort mapping',
     frontmatter: 'effort: max',
     config: {
-      agentEffortMap: {
+      effortPresets: {
         max: null,
       },
     },
-    error: /Missing agent reasoning effort mapping for "max"/,
+    error: /Missing effort preset mapping for "max"/,
   },
   {
     name: 'invalid source reasoning effort',
     frontmatter: 'effort: unmapped-effort',
     config: {
-      agentEffortMap: {
+      effortPresets: {
         'unmapped-effort': { claude: 'high', codex: 'high' },
       },
     },
@@ -1326,31 +1370,31 @@ for (const invalidMapping of [
     name: 'missing Claude reasoning effort mapping',
     frontmatter: 'effort: max',
     config: {
-      agentEffortMap: {
+      effortPresets: {
         max: { codex: 'max' },
       },
     },
-    error: /Missing Claude reasoning effort mapping for "max"/,
+    error: /Missing Claude effort preset mapping for "max"/,
   },
   {
     name: 'invalid Claude reasoning effort mapping',
     frontmatter: 'effort: max',
     config: {
-      agentEffortMap: {
+      effortPresets: {
         max: { claude: 'invalid', codex: 'max' },
       },
     },
-    error: /Invalid Claude reasoning effort mapping for "max".*Expected one of: low, medium, high, xhigh, max/,
+    error: /Invalid Claude effort preset mapping for "max".*Expected one of: low, medium, high, xhigh, max/,
   },
   {
     name: 'invalid Codex reasoning effort mapping',
     frontmatter: 'effort: max',
     config: {
-      agentEffortMap: {
+      effortPresets: {
         max: { claude: 'max', codex: 'invalid' },
       },
     },
-    error: /Invalid Codex reasoning effort mapping for "max".*Expected one of: none, low, medium, high, xhigh, max/,
+    error: /Invalid Codex effort preset mapping for "max".*Expected one of: none, low, medium, high, xhigh, max/,
   },
 ]) {
   test(`${invalidMapping.name} aborts before writing targets or backups`, () => {
@@ -1393,7 +1437,7 @@ test('allows the documented skill and agent frontmatter fields', () => {
     );
     writeFileSync(
       join(agentDirectory, 'documented-agent.md'),
-      '---\nname: documented-agent\ndescription: Uses all shared agent metadata\nmodel: opus\neffort: max\n---\n\n# Documented agent\n',
+      '---\nname: documented-agent\ndescription: Uses all shared agent metadata\nmodel: flagship\neffort: max\n---\n\n# Documented agent\n',
     );
 
     const result = runSync(environment);
@@ -1418,7 +1462,7 @@ test('parses inline comments and quoted scalar frontmatter values', () => {
     );
     writeFileSync(
       join(agentDirectory, 'quoted-agent.md'),
-      '---\nname: "quoted-agent" # source name\ndescription: "Reviews \\"quoted\\" changes # safely" # source description\nmodel: "opus" # source model\neffort: \'max\' # source effort\n---\n\n# Quoted agent\n',
+      '---\nname: "quoted-agent" # source name\ndescription: "Reviews \\"quoted\\" changes # safely" # source description\nmodel: "flagship" # source model preset\neffort: \'max\' # source effort\n---\n\n# Quoted agent\n',
     );
 
     const result = runSync(environment);
