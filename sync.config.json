@@ -26,9 +26,9 @@
     }
   },
   "effortPresets": {
-    "low": {
-      "claude": "low",
-      "codex": "low",
+    "high": {
+      "claude": "high",
+      "codex": "high",
       "antigravity": ""
     },
     "medium": {
@@ -36,9 +36,9 @@
       "codex": "medium",
       "antigravity": ""
     },
-    "high": {
-      "claude": "high",
-      "codex": "high",
+    "low": {
+      "claude": "low",
+      "codex": "low",
       "antigravity": ""
     }
   }
