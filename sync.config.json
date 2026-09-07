@@ -8,27 +8,27 @@
     "codex": true,
     "antigravity": false
   },
-  "agentModelMap": {
-    "opus": {
+  "modelPresets": {
+    "flagship": {
       "claude": "opus",
       "codex": "gpt-5.6-sol",
       "antigravity": "pro"
     },
-    "sonnet": {
+    "balanced": {
       "claude": "sonnet",
       "codex": "gpt-5.6-terra",
       "antigravity": "pro"
     },
-    "haiku": {
+    "fast": {
       "claude": "haiku",
       "codex": "gpt-5.6-luna",
       "antigravity": "flash"
     }
   },
-  "agentEffortMap": {
-    "low": {
-      "claude": "low",
-      "codex": "low",
+  "effortPresets": {
+    "high": {
+      "claude": "high",
+      "codex": "high",
       "antigravity": ""
     },
     "medium": {
@@ -36,19 +36,9 @@
       "codex": "medium",
       "antigravity": ""
     },
-    "high": {
-      "claude": "high",
-      "codex": "high",
-      "antigravity": ""
-    },
-    "xhigh": {
-      "claude": "xhigh",
-      "codex": "xhigh",
-      "antigravity": ""
-    },
-    "max": {
-      "claude": "max",
-      "codex": "max",
+    "low": {
+      "claude": "low",
+      "codex": "low",
       "antigravity": ""
     }
   }
