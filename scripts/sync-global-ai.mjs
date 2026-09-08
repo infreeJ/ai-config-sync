@@ -19,7 +19,8 @@ const ROOT = resolve(join(dirname(fileURLToPath(import.meta.url)), '..'));
 const SOURCE_ROOT = join(ROOT, 'sources');
 const SOURCE_SKILLS = join(SOURCE_ROOT, 'skills');
 const SOURCE_AGENTS = join(SOURCE_ROOT, 'agents');
-const CONFIG_FILE = join(ROOT, 'sync.config.json');
+const CONFIG_FILE = join(ROOT, 'config', 'sync.config.json');
+const CONFIG_DEFAULT_FILE = join(ROOT, 'config', 'sync.config.default.json');
 const BACKUP_ROOT = join(ROOT, 'backup');
 const DRY_RUN_REQUESTED = process.argv.includes('--dry-run');
 const YES_REQUESTED = process.argv.includes('--yes');
@@ -39,27 +40,14 @@ function color(text, ...styles) {
   return `${styles.map((style) => ANSI[style]).join('')}${text}${ANSI.reset}`;
 }
 
-const DEFAULT_CONFIG = {
-  instructionsMode: 'append',
-  preCommitSync: 'off',
-  backup: 'on',
-  backupRetentionCount: 10,
-  providers: {
-    claude: true,
-    codex: true,
-    antigravity: false,
-  },
-  modelPresets: {
-    flagship: { claude: 'opus', codex: 'gpt-5.6-sol', antigravity: 'pro' },
-    balanced: { claude: 'sonnet', codex: 'gpt-5.6-terra', antigravity: 'pro' },
-    fast: { claude: 'haiku', codex: 'gpt-5.6-luna', antigravity: 'flash' },
-  },
-  effortPresets: {
-    low: { claude: 'low', codex: 'low', antigravity: '' },
-    medium: { claude: 'medium', codex: 'medium', antigravity: '' },
-    high: { claude: 'high', codex: 'high', antigravity: '' },
-  },
-};
+function readDefaultConfig() {
+  if (!existsSync(CONFIG_DEFAULT_FILE)) {
+    throw new Error(`Config default file is missing: ${CONFIG_DEFAULT_FILE}. Run: npm run init`);
+  }
+  return JSON.parse(readFileSync(CONFIG_DEFAULT_FILE, 'utf8'));
+}
+
+const DEFAULT_CONFIG = readDefaultConfig();
 
 const home = process.env.USERPROFILE || process.env.HOME;
 if (!home) {
