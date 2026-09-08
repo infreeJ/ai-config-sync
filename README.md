@@ -35,14 +35,16 @@ npm run sync:dry
 
 ## 관리 범위와 구조
 
+### 디렉터리 구조
+
 ```text
 sources/
-  AGENTS.md       # Codex 지시문 원본
-  CLAUDE.md       # Claude 지시문 원본
-  GEMINI.md       # Antigravity CLI 지시문 원본
-  agents/         # Claude 기준 Markdown agent 원본
-  skills/         # 활성화한 제공자에 공유할 skill 디렉터리
-scripts/             # 스크립트 및 시스템 파일
+  AGENTS.md  # Codex 지시문 원본
+  CLAUDE.md  # Claude 지시문 원본
+  GEMINI.md  # Antigravity CLI 지시문 원본
+  agents/    # Claude 기준 Markdown agent 원본
+  skills/    # 활성화한 제공자에 공유할 skill 디렉터리
+scripts/  # 스크립트 및 시스템 파일
 config/
   sync.config.default.json  # 동기화 설정 기본값 (버전 관리 대상)
   sync.config.json          # 실제 동기화 설정 (버전 관리 제외, npm run init으로 생성)
@@ -66,6 +68,8 @@ config/
 
 허용하는 키는 `claude`, `codex`, `antigravity`뿐이며 값은 boolean이어야 합니다. 일부 키만 지정하면 지정하지 않은 키에는 기본값을 적용합니다. 예를 들어 Antigravity CLI도 동기화하려면 `"antigravity": true`를 지정합니다.
 
+### 원본과 동기화 대상
+
 비활성화한 제공자의 전역 지시문, skills, agents는 생성·수정·삭제하지 않습니다. 해당 제공자에서 과거에 동기화한 파일도 그대로 유지합니다. `sources/GEMINI.md`와 Antigravity CLI 대상 skill·agent 원본은 Antigravity CLI를 활성화할 때 사용할 수 있습니다.
 
 | 원본 | Claude | Codex | Antigravity CLI |
@@ -79,6 +83,8 @@ config/
 `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`는 각각 Claude, Codex, Antigravity CLI에만 동기화합니다. 표의 대상 중 `providers`에서 활성화한 제공자에만 실제로 적용합니다.
 
 동일한 이름의 skill 또는 agent는 활성화한 제공자에서만 갱신하지만, 이름이 다른 전역 항목은 보존합니다. Codex에 포함된 `.system` skill도 관리 대상이 아닙니다.
+
+<br>
 
 ## 동기화 전 백업
 
@@ -111,7 +117,7 @@ git fetch upstream
 git merge upstream/main
 ```
 
-개인 `sources/`는 개인 원격 저장소에만 관리되므로, 이후 병합에서는 도구 업데이트와 개인 원본을 분리할 수 있습니다.
+개인 `sources/`는 개인 원격 저장소에만 관리되므로, 이후 병합에서는 도구 업데이트와 개인 원본을 분리할 수 있습니다. `config/sync.config.json`도 Git 추적 대상이 아니므로 병합 시 충돌하지 않습니다.
 
 기존 방식으로 개인 저장소를 사용 중이었다면, 처음 병합할 때 `sources/` 충돌이 발생할 수 있습니다. 이 경우 개인 `sources/`를 보존하세요.
 
@@ -126,7 +132,7 @@ git merge upstream/main
 | `append` (기본값) | 기존 전역 지시문의 관리 마커 블록에만 원본 지시문을 추가하거나 갱신합니다. |
 | `managed` | 활성화한 제공자의 기존 전역 지시문을 원본으로 교체합니다. |
 | `off` | 활성화한 제공자의 지시문은 건너뛰고 skills와 agents만 동기화합니다. |
-| `sidecar` | 활성화한 제공자의 `AGENTS-sync.md`, `CLAUDE-sync.md`, `GEMINI-sync.md`만 씁니다. (실험적 옵션)|
+| `sidecar` | 활성화한 제공자의 `AGENTS-sync.md`, `CLAUDE-sync.md`, `GEMINI-sync.md`만 씁니다. (실험적 옵션) |
 
 ### 1. `append`: 공유 설정과 로컬 설정 함께 관리
 
