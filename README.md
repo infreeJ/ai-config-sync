@@ -12,7 +12,7 @@
    npm run init
    ```
 
-   이 명령은 기본 구성을 `sources/`에 만듭니다. 이후 개인 원본은 일반 Git 흐름으로 관리하세요.
+   이 명령은 기본 구성을 `sources/`에 만들고, `config/sync.config.json`도 함께 준비합니다. `config/sync.config.json`이 없으면 기본값 파일인 `config/sync.config.default.json`을 복사해서 만들고, 이미 있으면 그대로 보존합니다. 동기화를 실행할 때마다 `config/sync.config.default.json`과 `config/sync.config.json`을 필드 단위로 병합하므로, 이후 도구 업데이트로 기본값 파일의 항목이 추가·삭제·변경되더라도 필드명이 정확히 일치하는 항목만 반영되며 `config/sync.config.json`에 이미 설정해 둔 값이 항상 우선합니다. 이후 개인 원본은 일반 Git 흐름으로 관리하세요.
 
 2. `sources/` 아래의 파일을 수정합니다.
 3. 동기화합니다.
@@ -43,14 +43,16 @@ sources/
   agents/         # Claude 기준 Markdown agent 원본
   skills/         # 활성화한 제공자에 공유할 skill 디렉터리
 scripts/             # 스크립트 및 시스템 파일
-sync.config.json      # 동기화 설정 파일
+config/
+  sync.config.default.json  # 동기화 설정 기본값 (버전 관리 대상)
+  sync.config.json          # 실제 동기화 설정 (버전 관리 제외, npm run init으로 생성)
 ```
 
 `sources/`는 사용자의 개인 원본입니다. 설정은 항상 이 디렉터리에서 수정하세요.
 
 ### 동기화 제공자 선택
 
-`sync.config.json`의 `providers`에서 제공자별 동기화 여부를 설정합니다. 기본값은 Claude와 Codex를 동기화하고 Antigravity CLI는 제외하는 다음 설정입니다.
+`config/sync.config.json`의 `providers`에서 제공자별 동기화 여부를 설정합니다. 기본값은 Claude와 Codex를 동기화하고 Antigravity CLI는 제외하는 다음 설정입니다.
 
 ```json
 {
@@ -80,7 +82,7 @@ sync.config.json      # 동기화 설정 파일
 
 ## 동기화 전 백업
 
-`sync.config.json`의 `backup`은 기본값이 `"on"`입니다. 실제 전역 파일 변경이 예정되어 승인된 경우에만, 적용 직전에 현재 전역 설정을 `backup/<실행별 폴더>/`에 복사합니다. 백업 폴더는 `2026-08-20T12-34-56-789Z` 형식의 UTC 생성 시각을 이름에 사용하며, 같은 시각에 여러 번 실행하면 `-1`, `-2`처럼 suffix를 붙여 기존 백업을 덮어쓰지 않습니다.
+`config/sync.config.json`의 `backup`은 기본값이 `"on"`입니다. 실제 전역 파일 변경이 예정되어 승인된 경우에만, 적용 직전에 현재 전역 설정을 `backup/<실행별 폴더>/`에 복사합니다. 백업 폴더는 `2026-08-20T12-34-56-789Z` 형식의 UTC 생성 시각을 이름에 사용하며, 같은 시각에 여러 번 실행하면 `-1`, `-2`처럼 suffix를 붙여 기존 백업을 덮어쓰지 않습니다.
 
 백업에는 활성화한 제공자의 다음 항목이 존재하는 경우에만, 원래 디렉터리 구조를 유지해 저장합니다. 비활성화한 제공자의 전역 파일은 백업하지 않습니다.
 
@@ -90,7 +92,7 @@ sync.config.json      # 동기화 설정 파일
 
 `backupRetentionCount`는 보존할 최신 백업 개수이며 기본값은 `10`입니다. 새 백업을 성공적으로 만든 뒤 설정값을 초과한 도구 생성 백업은 폴더 이름의 생성 시각순으로 가장 오래된 것부터 삭제합니다. 폴더의 수정 시각 같은 파일 시스템 메타데이터는 사용하지 않습니다.
 
-`npm run sync:dry`는 계획만 출력하며 백업을 만들거나 기존 백업을 정리하지 않습니다. 백업이 필요하지 않다면 `sync.config.json`에서 `"backup": "off"`로 설정할 수 있으며, 이 경우에도 기존 백업은 정리하지 않습니다. `backup/`에는 개인 전역 설정 사본이 저장될 수 있으므로 Git에서 제외됩니다.
+`npm run sync:dry`는 계획만 출력하며 백업을 만들거나 기존 백업을 정리하지 않습니다. 백업이 필요하지 않다면 `config/sync.config.json`에서 `"backup": "off"`로 설정할 수 있으며, 이 경우에도 기존 백업은 정리하지 않습니다. `backup/`에는 개인 전역 설정 사본이 저장될 수 있으므로 Git에서 제외됩니다.
 
 <br>
 
@@ -117,7 +119,7 @@ git merge upstream/main
 
 ## 지시문 동기화 모드
 
-`sync.config.json`의 `instructionsMode`로 동작을 고릅니다.
+`config/sync.config.json`의 `instructionsMode`로 동작을 고릅니다.
 
 | 모드 | 동작 |
 | --- | --- |
@@ -188,7 +190,7 @@ Agent instructions go here.
 - Codex는 두 프리셋의 `codex` 대상값을 각각 모델과 `model_reasoning_effort`로 변환합니다.
 - Antigravity CLI는 `modelPresets`의 `antigravity` 대상 모델만 받고 `effort`는 출력하지 않습니다.
 
-`sync.config.json`의 `modelPresets`는 원본 모델 프리셋을 제공자별 실제 모델로, `effortPresets`는 원본 추론 수준을 제공자별 추론 수준으로 변환합니다. 예를 들어 `balanced` 프리셋은 Claude의 `sonnet`, Codex의 `gpt-5.6-terra`, Antigravity CLI의 `pro`로 변환됩니다. Claude의 `opus`, `sonnet`, `haiku`는 원본 `model` 키가 아니라 `modelPresets` 안의 Claude 대상값이며, `flagship`, `balanced`, `fast` 각각이 이를 가리킵니다.
+`config/sync.config.json`의 `modelPresets`는 원본 모델 프리셋을 제공자별 실제 모델로, `effortPresets`는 원본 추론 수준을 제공자별 추론 수준으로 변환합니다. 예를 들어 `balanced` 프리셋은 Claude의 `sonnet`, Codex의 `gpt-5.6-terra`, Antigravity CLI의 `pro`로 변환됩니다. Claude의 `opus`, `sonnet`, `haiku`는 원본 `model` 키가 아니라 `modelPresets` 안의 Claude 대상값이며, `flagship`, `balanced`, `fast` 각각이 이를 가리킵니다.
 
 에이전트에 `model` 또는 `effort`를 썼다면 해당 프리셋의 매핑은 활성화한 제공자에 대해서만 필요합니다. 비활성화한 제공자의 매핑은 남겨 두거나 생략할 수 있으며 동기화에 사용하지 않습니다. Claude 모델 대상값은 `opus`, `sonnet`, `haiku` 중 하나여야 하고, Codex 모델 대상값은 비어 있지 않은 문자열이어야 합니다. Antigravity CLI 모델 대상값은 `flash` 또는 `pro`만 사용할 수 있습니다. `effort` 원본 키는 `low`, `medium`, `high` 중 하나여야 합니다. 반면 제공자 대상값은 더 세분화할 수 있어 Claude 대상값은 `low`, `medium`, `high`, `xhigh`, `max`, Codex 대상값은 `none`, `low`, `medium`, `high`, `xhigh`, `max` 중 하나여야 합니다. Antigravity CLI는 추론 수준을 받지 않으므로 `effortPresets`의 `antigravity` 값은 동기화에 사용하지 않습니다. 기본 설정 예시에서는 빈 문자열(`""`)로 두었으며, 생략해도 됩니다.
 
@@ -243,7 +245,7 @@ CI나 Git hook처럼 입력을 받을 수 없는 환경에서는 `--yes`로 승�
 npm run sync:yes
 ```
 
-`sync.config.json`에서 `preCommitSync`를 `"on"`으로 바꾸고 한 번만 hook 경로를 설정하세요.
+`config/sync.config.json`에서 `preCommitSync`를 `"on"`으로 바꾸고 한 번만 hook 경로를 설정하세요.
 
 ```sh
 git config core.hooksPath scripts/hooks
