@@ -1794,10 +1794,6 @@ function writeSyncConfig(repository, overrides) {
   const config = JSON.parse(readFileSync(basePath, 'utf8'));
   const content = `${JSON.stringify({ ...config, ...overrides }, null, 2)}\n`;
   writeFileSync(configPath, content);
-  // scripts/sync-global-ai.mjs still reads the root sync.config.json (2단계 이전이므로
-  // 아직 config/ 경로를 인식하지 못한다). runSync 동작을 검증하는 테스트가 계속 통과하도록
-  // 루트 파일도 함께 갱신해 둔다.
-  writeFileSync(join(repository, 'sync.config.json'), content);
 }
 
 function deleteConfigField(repository, fieldName) {
@@ -1808,10 +1804,6 @@ function deleteConfigField(repository, fieldName) {
   delete config[fieldName];
   const content = `${JSON.stringify(config, null, 2)}\n`;
   writeFileSync(configPath, content);
-  // scripts/sync-global-ai.mjs still reads the root sync.config.json (2단계 이전이므로
-  // 아직 config/ 경로를 인식하지 못한다). runSync 동작을 검증하는 테스트가 계속 통과하도록
-  // 루트 파일도 함께 갱신해 둔다.
-  writeFileSync(join(repository, 'sync.config.json'), content);
 }
 
 function escapeRegExp(value) {
