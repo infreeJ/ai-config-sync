@@ -29,7 +29,9 @@ function createTestEnvironment({ initializeGit = true, initializeSources = true,
   cpSync(REPOSITORY_ROOT, repository, {
     recursive: true,
     filter: (source) =>
-      source !== join(REPOSITORY_ROOT, 'sources') && !['.git', 'node_modules'].includes(basename(source)),
+      source !== join(REPOSITORY_ROOT, 'sources') &&
+      source !== join(REPOSITORY_ROOT, 'config', 'sync.config.json') &&
+      !['.git', 'node_modules'].includes(basename(source)),
   });
   if (enableAllProviders) {
     writeSyncConfig(repository, {
@@ -185,6 +187,70 @@ test('init creates sources outside a Git work tree', () => {
     assert.equal(result.status, 0, result.output);
     assert.equal(existsSync(join(environment.repository, 'sources', 'AGENTS.md')), true);
     assert.equal(existsSync(join(environment.repository, 'sources', 'GEMINI.md')), true);
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('init creates config/sync.config.json from the bundled default without staging it', () => {
+  const environment = createTestEnvironment({ initializeSources: false, enableAllProviders: false });
+  try {
+    const result = runInit(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /Created config\/sync\.config\.json from the bundled default/);
+    assert.equal(
+      readFileSync(join(environment.repository, 'config', 'sync.config.json'), 'utf8'),
+      readFileSync(join(environment.repository, 'config', 'sync.config.default.json'), 'utf8'),
+    );
+    assert.equal(
+      execFileSync('git', ['diff', '--cached', '--name-only'], {
+        cwd: environment.repository,
+        encoding: 'utf8',
+      }),
+      '',
+    );
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('init preserves an existing config/sync.config.json without staging it', () => {
+  const environment = createTestEnvironment({ initializeSources: false, enableAllProviders: false });
+  try {
+    const customConfig = '{\n  "instructionsMode": "off"\n}\n';
+    mkdirSync(join(environment.repository, 'config'), { recursive: true });
+    writeFileSync(join(environment.repository, 'config', 'sync.config.json'), customConfig);
+
+    const result = runInit(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /config\/sync\.config\.json already exists; preserved existing file/);
+    assert.equal(
+      readFileSync(join(environment.repository, 'config', 'sync.config.json'), 'utf8'),
+      customConfig,
+    );
+    const stagedFiles = execFileSync('git', ['diff', '--cached', '--name-only'], {
+      cwd: environment.repository,
+      encoding: 'utf8',
+    });
+    assert.equal(stagedFiles, '');
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('init creates config/sync.config.json outside a Git work tree', () => {
+  const environment = createTestEnvironment({
+    initializeGit: false,
+    initializeSources: false,
+    enableAllProviders: false,
+  });
+  try {
+    const result = runInit(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.equal(existsSync(join(environment.repository, 'config', 'sync.config.json')), true);
   } finally {
     environment.cleanup();
   }
@@ -523,10 +589,7 @@ test('each changed sync creates a distinct backup and preserves earlier backups'
 test('missing backup configuration defaults to creating a backup before changes', () => {
   const environment = createTestEnvironment();
   try {
-    const configPath = join(environment.repository, 'sync.config.json');
-    const config = JSON.parse(readFileSync(configPath, 'utf8'));
-    delete config.backup;
-    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    deleteConfigField(environment.repository, 'backup');
 
     const result = runSync(environment);
 
@@ -591,10 +654,7 @@ test('sync retains the newest configured backups and reports the expired snapsho
 test('missing backupRetentionCount keeps the default ten newest backups', () => {
   const environment = createTestEnvironment();
   try {
-    const configPath = join(environment.repository, 'sync.config.json');
-    const config = JSON.parse(readFileSync(configPath, 'utf8'));
-    delete config.backupRetentionCount;
-    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    deleteConfigField(environment.repository, 'backupRetentionCount');
     const backupRoot = join(environment.repository, 'backup');
     const oldestBackup = '2025-01-01T00-00-00-000Z';
 
@@ -1728,9 +1788,30 @@ function createBackupFixture(backupRoot, name) {
 }
 
 function writeSyncConfig(repository, overrides) {
-  const configPath = join(repository, 'sync.config.json');
-  const config = JSON.parse(readFileSync(configPath, 'utf8'));
-  writeFileSync(configPath, `${JSON.stringify({ ...config, ...overrides }, null, 2)}\n`);
+  const configPath = join(repository, 'config', 'sync.config.json');
+  const defaultConfigPath = join(repository, 'config', 'sync.config.default.json');
+  const basePath = existsSync(configPath) ? configPath : defaultConfigPath;
+  const config = JSON.parse(readFileSync(basePath, 'utf8'));
+  const content = `${JSON.stringify({ ...config, ...overrides }, null, 2)}\n`;
+  writeFileSync(configPath, content);
+  // scripts/sync-global-ai.mjs still reads the root sync.config.json (2단계 이전이므로
+  // 아직 config/ 경로를 인식하지 못한다). runSync 동작을 검증하는 테스트가 계속 통과하도록
+  // 루트 파일도 함께 갱신해 둔다.
+  writeFileSync(join(repository, 'sync.config.json'), content);
+}
+
+function deleteConfigField(repository, fieldName) {
+  const configPath = join(repository, 'config', 'sync.config.json');
+  const defaultConfigPath = join(repository, 'config', 'sync.config.default.json');
+  const basePath = existsSync(configPath) ? configPath : defaultConfigPath;
+  const config = JSON.parse(readFileSync(basePath, 'utf8'));
+  delete config[fieldName];
+  const content = `${JSON.stringify(config, null, 2)}\n`;
+  writeFileSync(configPath, content);
+  // scripts/sync-global-ai.mjs still reads the root sync.config.json (2단계 이전이므로
+  // 아직 config/ 경로를 인식하지 못한다). runSync 동작을 검증하는 테스트가 계속 통과하도록
+  // 루트 파일도 함께 갱신해 둔다.
+  writeFileSync(join(repository, 'sync.config.json'), content);
 }
 
 function escapeRegExp(value) {

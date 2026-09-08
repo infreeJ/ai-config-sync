@@ -2,3 +2,4 @@
 .codex/
 backup/
 debug.log
+config/sync.config.json
