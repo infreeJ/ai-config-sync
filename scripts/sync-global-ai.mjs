@@ -19,7 +19,8 @@ const ROOT = resolve(join(dirname(fileURLToPath(import.meta.url)), '..'));
 const SOURCE_ROOT = join(ROOT, 'sources');
 const SOURCE_SKILLS = join(SOURCE_ROOT, 'skills');
 const SOURCE_AGENTS = join(SOURCE_ROOT, 'agents');
-const CONFIG_FILE = join(ROOT, 'sync.config.json');
+const CONFIG_FILE = join(ROOT, 'config', 'sync.config.json');
+const CONFIG_DEFAULT_FILE = join(ROOT, 'config', 'sync.config.default.json');
 const BACKUP_ROOT = join(ROOT, 'backup');
 const DRY_RUN_REQUESTED = process.argv.includes('--dry-run');
 const YES_REQUESTED = process.argv.includes('--yes');
@@ -39,29 +40,14 @@ function color(text, ...styles) {
   return `${styles.map((style) => ANSI[style]).join('')}${text}${ANSI.reset}`;
 }
 
-const DEFAULT_CONFIG = {
-  instructionsMode: 'append',
-  preCommitSync: 'off',
-  backup: 'on',
-  backupRetentionCount: 10,
-  providers: {
-    claude: true,
-    codex: true,
-    antigravity: false,
-  },
-  agentModelMap: {
-    opus: { claude: 'opus', codex: 'gpt-5.6-sol', antigravity: 'pro' },
-    sonnet: { claude: 'sonnet', codex: 'gpt-5.6-terra', antigravity: 'pro' },
-    haiku: { claude: 'haiku', codex: 'gpt-5.6-terra', antigravity: 'flash' },
-  },
-  agentEffortMap: {
-    low: { claude: 'low', codex: 'low', antigravity: '' },
-    medium: { claude: 'medium', codex: 'medium', antigravity: '' },
-    high: { claude: 'high', codex: 'high', antigravity: '' },
-    xhigh: { claude: 'xhigh', codex: 'xhigh', antigravity: '' },
-    max: { claude: 'max', codex: 'max', antigravity: '' },
-  },
-};
+function readDefaultConfig() {
+  if (!existsSync(CONFIG_DEFAULT_FILE)) {
+    throw new Error(`Config default file is missing: ${CONFIG_DEFAULT_FILE}. Run: npm run init`);
+  }
+  return JSON.parse(readFileSync(CONFIG_DEFAULT_FILE, 'utf8'));
+}
+
+const DEFAULT_CONFIG = readDefaultConfig();
 
 const home = process.env.USERPROFILE || process.env.HOME;
 if (!home) {
@@ -135,6 +121,8 @@ const BACKUP_MODES = new Set(['on', 'off']);
 const PROVIDER_NAMES = new Set(['claude', 'codex', 'antigravity']);
 const SKILL_FRONTMATTER_FIELDS = new Set(['name', 'description']);
 const AGENT_FRONTMATTER_FIELDS = new Set(['name', 'description', 'model', 'effort']);
+const MODEL_PRESETS = new Set(['flagship', 'balanced', 'fast']);
+const EFFORT_PRESETS = new Set(['low', 'medium', 'high']);
 const CLAUDE_AGENT_MODELS = new Set(['opus', 'sonnet', 'haiku']);
 const CLAUDE_REASONING_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 const CODEX_REASONING_EFFORTS = new Set(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
@@ -176,13 +164,13 @@ function readConfig() {
   return {
     ...DEFAULT_CONFIG,
     ...userConfig,
-    agentModelMap: {
-      ...DEFAULT_CONFIG.agentModelMap,
-      ...(userConfig.agentModelMap || {}),
+    modelPresets: {
+      ...DEFAULT_CONFIG.modelPresets,
+      ...(userConfig.modelPresets || {}),
     },
-    agentEffortMap: {
-      ...DEFAULT_CONFIG.agentEffortMap,
-      ...(userConfig.agentEffortMap || {}),
+    effortPresets: {
+      ...DEFAULT_CONFIG.effortPresets,
+      ...(userConfig.effortPresets || {}),
     },
     providers:
       userConfig.providers === undefined
@@ -689,44 +677,44 @@ function tomlString(value) {
 function validateAgentModelMapping(meta, sourcePath) {
   if (!meta.model) return;
 
-  if (!CLAUDE_AGENT_MODELS.has(meta.model)) {
+  if (!MODEL_PRESETS.has(meta.model)) {
     throw new Error(
-      `Invalid source model "${meta.model}" in ${sourcePath}. Expected one of: ${[...CLAUDE_AGENT_MODELS].join(', ')}.`,
+      `Invalid source model preset "${meta.model}" in ${sourcePath}. Expected one of: ${[...MODEL_PRESETS].join(', ')}.`,
     );
   }
 
-  const mapped = config.agentModelMap[meta.model];
+  const mapped = config.modelPresets[meta.model];
   if (
     (isProviderEnabled('claude') || isProviderEnabled('codex') || isProviderEnabled('antigravity')) &&
     (!mapped || typeof mapped !== 'object')
   ) {
-    throw new Error(`Missing agent model mapping for "${meta.model}" in ${sourcePath}.`);
+    throw new Error(`Missing model preset mapping for "${meta.model}" in ${sourcePath}.`);
   }
   if (isProviderEnabled('claude')) {
     if (typeof mapped.claude !== 'string' || mapped.claude === '') {
-      throw new Error(`Missing Claude model mapping for "${meta.model}" in ${sourcePath}.`);
+      throw new Error(`Missing Claude model preset mapping for "${meta.model}" in ${sourcePath}.`);
     }
     if (!CLAUDE_AGENT_MODELS.has(mapped.claude)) {
       throw new Error(
-        `Invalid Claude model mapping for "${meta.model}" in ${sourcePath}. Expected one of: ${[...CLAUDE_AGENT_MODELS].join(', ')}.`,
+        `Invalid Claude model preset mapping for "${meta.model}" in ${sourcePath}. Expected one of: ${[...CLAUDE_AGENT_MODELS].join(', ')}.`,
       );
     }
   }
   if (isProviderEnabled('codex')) {
     if (typeof mapped.codex !== 'string') {
-      throw new Error(`Missing Codex model mapping for "${meta.model}" in ${sourcePath}.`);
+      throw new Error(`Missing Codex model preset mapping for "${meta.model}" in ${sourcePath}.`);
     }
     if (mapped.codex.trim() === '') {
-      throw new Error(`Invalid Codex model mapping for "${meta.model}" in ${sourcePath}. Expected a non-empty string.`);
+      throw new Error(`Invalid Codex model preset mapping for "${meta.model}" in ${sourcePath}. Expected a non-empty string.`);
     }
   }
   if (isProviderEnabled('antigravity')) {
     if (typeof mapped.antigravity !== 'string' || mapped.antigravity === '') {
-      throw new Error(`Missing Antigravity model mapping for "${meta.model}" in ${sourcePath}.`);
+      throw new Error(`Missing Antigravity model preset mapping for "${meta.model}" in ${sourcePath}.`);
     }
     if (!['flash', 'pro'].includes(mapped.antigravity)) {
       throw new Error(
-        `Invalid Antigravity model mapping for "${meta.model}" in ${sourcePath}. Expected "flash" or "pro".`,
+        `Invalid Antigravity model preset mapping for "${meta.model}" in ${sourcePath}. Expected "flash" or "pro".`,
       );
     }
   }
@@ -735,35 +723,35 @@ function validateAgentModelMapping(meta, sourcePath) {
 function validateAgentEffortMapping(meta, sourcePath) {
   if (!meta.effort) return;
 
-  if (!CLAUDE_REASONING_EFFORTS.has(meta.effort)) {
+  if (!EFFORT_PRESETS.has(meta.effort)) {
     throw new Error(
-      `Invalid source reasoning effort "${meta.effort}" in ${sourcePath}. Expected one of: ${[...CLAUDE_REASONING_EFFORTS].join(', ')}.`,
+      `Invalid source effort preset "${meta.effort}" in ${sourcePath}. Expected one of: ${[...EFFORT_PRESETS].join(', ')}.`,
     );
   }
-  const mapped = config.agentEffortMap[meta.effort];
+  const mapped = config.effortPresets[meta.effort];
   if (
     (isProviderEnabled('claude') || isProviderEnabled('codex')) &&
     (!mapped || typeof mapped !== 'object')
   ) {
-    throw new Error(`Missing agent reasoning effort mapping for "${meta.effort}" in ${sourcePath}.`);
+    throw new Error(`Missing effort preset mapping for "${meta.effort}" in ${sourcePath}.`);
   }
   if (isProviderEnabled('claude')) {
     if (typeof mapped.claude !== 'string' || mapped.claude === '') {
-      throw new Error(`Missing Claude reasoning effort mapping for "${meta.effort}" in ${sourcePath}.`);
+      throw new Error(`Missing Claude effort preset mapping for "${meta.effort}" in ${sourcePath}.`);
     }
     if (!CLAUDE_REASONING_EFFORTS.has(mapped.claude)) {
       throw new Error(
-        `Invalid Claude reasoning effort mapping for "${meta.effort}" in ${sourcePath}. Expected one of: ${[...CLAUDE_REASONING_EFFORTS].join(', ')}.`,
+        `Invalid Claude effort preset mapping for "${meta.effort}" in ${sourcePath}. Expected one of: ${[...CLAUDE_REASONING_EFFORTS].join(', ')}.`,
       );
     }
   }
   if (isProviderEnabled('codex')) {
     if (typeof mapped.codex !== 'string' || mapped.codex === '') {
-      throw new Error(`Missing Codex reasoning effort mapping for "${meta.effort}" in ${sourcePath}.`);
+      throw new Error(`Missing Codex effort preset mapping for "${meta.effort}" in ${sourcePath}.`);
     }
     if (!CODEX_REASONING_EFFORTS.has(mapped.codex)) {
       throw new Error(
-        `Invalid Codex reasoning effort mapping for "${meta.effort}" in ${sourcePath}. Expected one of: ${[...CODEX_REASONING_EFFORTS].join(', ')}.`,
+        `Invalid Codex effort preset mapping for "${meta.effort}" in ${sourcePath}. Expected one of: ${[...CODEX_REASONING_EFFORTS].join(', ')}.`,
       );
     }
   }
@@ -774,18 +762,18 @@ function validateAgentMappings(meta, sourcePath) {
   validateAgentEffortMapping(meta, sourcePath);
 }
 
-function agentModelMapping(meta) {
-  return meta.model ? config.agentModelMap[meta.model] : undefined;
+function modelPreset(meta) {
+  return meta.model ? config.modelPresets[meta.model] : undefined;
 }
 
-function agentEffortMapping(meta) {
-  return meta.effort ? config.agentEffortMap[meta.effort] : undefined;
+function effortPreset(meta) {
+  return meta.effort ? config.effortPresets[meta.effort] : undefined;
 }
 
 function claudeAgentMarkdown(markdown) {
   const { meta } = parseFrontmatter(markdown);
-  const mapped = agentModelMapping(meta);
-  const mappedEffort = agentEffortMapping(meta);
+  const mapped = modelPreset(meta);
+  const mappedEffort = effortPreset(meta);
   let output = markdown;
   if (mapped) output = output.replace(/^(\s*model\s*:\s*).+$/m, `$1${mapped.claude}`);
   if (mappedEffort) output = output.replace(/^(\s*effort\s*:\s*).+$/m, `$1${mappedEffort.claude}`);
@@ -794,8 +782,8 @@ function claudeAgentMarkdown(markdown) {
 
 function codexAgentToml(name, markdown) {
   const { meta, body } = parseFrontmatter(markdown);
-  const mapped = agentModelMapping(meta);
-  const mappedEffort = agentEffortMapping(meta);
+  const mapped = modelPreset(meta);
+  const mappedEffort = effortPreset(meta);
   const description = meta.description || '';
   const instructions = body.replace(/^\r?\n+/, '').replace(/\s+$/, '');
 
@@ -812,7 +800,7 @@ function codexAgentToml(name, markdown) {
 
 function antigravityAgentMarkdown(markdown) {
   const { meta, body } = parseFrontmatter(markdown);
-  const mapped = agentModelMapping(meta);
+  const mapped = modelPreset(meta);
   const instructions = body.replace(/^\r?\n+/, '').replace(/\s+$/, '');
   const lines = ['---', `name: ${JSON.stringify(meta.name)}`, `description: ${JSON.stringify(meta.description)}`];
   if (mapped) lines.push(`model: ${mapped.antigravity}`);

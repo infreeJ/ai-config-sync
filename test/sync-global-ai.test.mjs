@@ -29,7 +29,9 @@ function createTestEnvironment({ initializeGit = true, initializeSources = true,
   cpSync(REPOSITORY_ROOT, repository, {
     recursive: true,
     filter: (source) =>
-      source !== join(REPOSITORY_ROOT, 'sources') && !['.git', 'node_modules'].includes(basename(source)),
+      source !== join(REPOSITORY_ROOT, 'sources') &&
+      source !== join(REPOSITORY_ROOT, 'config', 'sync.config.json') &&
+      !['.git', 'node_modules'].includes(basename(source)),
   });
   if (enableAllProviders) {
     writeSyncConfig(repository, {
@@ -185,6 +187,70 @@ test('init creates sources outside a Git work tree', () => {
     assert.equal(result.status, 0, result.output);
     assert.equal(existsSync(join(environment.repository, 'sources', 'AGENTS.md')), true);
     assert.equal(existsSync(join(environment.repository, 'sources', 'GEMINI.md')), true);
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('init creates config/sync.config.json from the bundled default without staging it', () => {
+  const environment = createTestEnvironment({ initializeSources: false, enableAllProviders: false });
+  try {
+    const result = runInit(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /Created config\/sync\.config\.json from the bundled default/);
+    assert.equal(
+      readFileSync(join(environment.repository, 'config', 'sync.config.json'), 'utf8'),
+      readFileSync(join(environment.repository, 'config', 'sync.config.default.json'), 'utf8'),
+    );
+    assert.equal(
+      execFileSync('git', ['diff', '--cached', '--name-only'], {
+        cwd: environment.repository,
+        encoding: 'utf8',
+      }),
+      '',
+    );
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('init preserves an existing config/sync.config.json without staging it', () => {
+  const environment = createTestEnvironment({ initializeSources: false, enableAllProviders: false });
+  try {
+    const customConfig = '{\n  "instructionsMode": "off"\n}\n';
+    mkdirSync(join(environment.repository, 'config'), { recursive: true });
+    writeFileSync(join(environment.repository, 'config', 'sync.config.json'), customConfig);
+
+    const result = runInit(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /config\/sync\.config\.json already exists; preserved existing file/);
+    assert.equal(
+      readFileSync(join(environment.repository, 'config', 'sync.config.json'), 'utf8'),
+      customConfig,
+    );
+    const stagedFiles = execFileSync('git', ['diff', '--cached', '--name-only'], {
+      cwd: environment.repository,
+      encoding: 'utf8',
+    });
+    assert.equal(stagedFiles, '');
+  } finally {
+    environment.cleanup();
+  }
+});
+
+test('init creates config/sync.config.json outside a Git work tree', () => {
+  const environment = createTestEnvironment({
+    initializeGit: false,
+    initializeSources: false,
+    enableAllProviders: false,
+  });
+  try {
+    const result = runInit(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.equal(existsSync(join(environment.repository, 'config', 'sync.config.json')), true);
   } finally {
     environment.cleanup();
   }
@@ -523,10 +589,7 @@ test('each changed sync creates a distinct backup and preserves earlier backups'
 test('missing backup configuration defaults to creating a backup before changes', () => {
   const environment = createTestEnvironment();
   try {
-    const configPath = join(environment.repository, 'sync.config.json');
-    const config = JSON.parse(readFileSync(configPath, 'utf8'));
-    delete config.backup;
-    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    deleteConfigField(environment.repository, 'backup');
 
     const result = runSync(environment);
 
@@ -591,10 +654,7 @@ test('sync retains the newest configured backups and reports the expired snapsho
 test('missing backupRetentionCount keeps the default ten newest backups', () => {
   const environment = createTestEnvironment();
   try {
-    const configPath = join(environment.repository, 'sync.config.json');
-    const config = JSON.parse(readFileSync(configPath, 'utf8'));
-    delete config.backupRetentionCount;
-    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    deleteConfigField(environment.repository, 'backupRetentionCount');
     const backupRoot = join(environment.repository, 'backup');
     const oldestBackup = '2025-01-01T00-00-00-000Z';
 
@@ -855,8 +915,8 @@ test('syncs nested skills to every target while migrating legacy Antigravity ski
       '---',
       'name: review-agent',
       'description: Reviews implementation changes',
-      'model: opus',
-      'effort: max',
+      'model: flagship',
+      'effort: high',
       '---',
       '',
       '# Review agent',
@@ -928,11 +988,11 @@ test('syncs nested skills to every target while migrating legacy Antigravity ski
       readFileSync(join(environment.home, '.codex', 'skills', 'preserved-skill', 'SKILL.md'), 'utf8'),
       'Codex local skill\n',
     );
-    assert.equal(readFileSync(claudeAgent, 'utf8'), agentMarkdown);
+    assert.equal(readFileSync(claudeAgent, 'utf8'), agentMarkdown.replace('model: flagship', 'model: opus'));
     assert.match(readFileSync(codexAgent, 'utf8'), /name = "review-agent"/);
     assert.match(readFileSync(codexAgent, 'utf8'), /description = "Reviews implementation changes"/);
     assert.match(readFileSync(codexAgent, 'utf8'), /model = "gpt-5\.6-sol"/);
-    assert.match(readFileSync(codexAgent, 'utf8'), /model_reasoning_effort = "max"/);
+    assert.match(readFileSync(codexAgent, 'utf8'), /model_reasoning_effort = "high"/);
     assert.match(readFileSync(codexAgent, 'utf8'), /developer_instructions = "# Review agent\\n\\nInspect the requested implementation\."/);
     assert.equal(
       readFileSync(antigravityAgent, 'utf8'),
@@ -1056,17 +1116,17 @@ test('disabled provider mappings are not required for agent sync', () => {
     const sourceAgent = join(environment.repository, 'sources', 'agents', 'mapped-agent.md');
     writeSyncConfig(environment.repository, {
       instructionsMode: 'off',
-      agentModelMap: {
-        opus: { claude: 'opus', codex: 'gpt-5.6-sol' },
+      modelPresets: {
+        flagship: { claude: 'opus', codex: 'gpt-5.6-sol' },
       },
-      agentEffortMap: {
-        max: { claude: 'max', codex: 'max' },
+      effortPresets: {
+        high: { claude: 'high', codex: 'high' },
       },
     });
     mkdirSync(dirname(sourceAgent), { recursive: true });
     writeFileSync(
       sourceAgent,
-      '---\nname: mapped-agent\ndescription: Omits disabled mappings\nmodel: opus\neffort: max\n---\n\n# Mapped agent\n',
+      '---\nname: mapped-agent\ndescription: Omits disabled mappings\nmodel: flagship\neffort: high\n---\n\n# Mapped agent\n',
     );
 
     const result = runSync(environment);
@@ -1095,12 +1155,12 @@ test('Antigravity-only sync does not require reasoning effort mappings', () => {
     writeSyncConfig(environment.repository, {
       instructionsMode: 'off',
       providers: { claude: false, codex: false, antigravity: true },
-      agentEffortMap: { max: null },
+      effortPresets: { high: null },
     });
     mkdirSync(dirname(sourceAgent), { recursive: true });
     writeFileSync(
       sourceAgent,
-      '---\nname: antigravity-agent\ndescription: Does not use effort mappings\neffort: max\n---\n\n# Antigravity agent\n',
+      '---\nname: antigravity-agent\ndescription: Does not use effort mappings\neffort: high\n---\n\n# Antigravity agent\n',
     );
 
     const result = runSync(environment);
@@ -1170,7 +1230,7 @@ test('maps agent reasoning effort for Claude and Codex independently', () => {
     ].join('\n');
     writeSyncConfig(environment.repository, {
       instructionsMode: 'off',
-      agentEffortMap: {
+      effortPresets: {
         high: { claude: 'xhigh', codex: 'none', antigravity: '' },
       },
     });
@@ -1188,6 +1248,34 @@ test('maps agent reasoning effort for Claude and Codex independently', () => {
   }
 });
 
+test('allows a high effort preset to map to maximum provider efforts', () => {
+  const environment = createTestEnvironment({ enableAllProviders: false });
+  try {
+    const sourceAgent = join(environment.repository, 'sources', 'agents', 'maximum-effort-agent.md');
+    const claudeAgent = join(environment.home, '.claude', 'agents', 'maximum-effort-agent.md');
+    const codexAgent = join(environment.home, '.codex', 'agents', 'maximum-effort-agent.toml');
+    writeSyncConfig(environment.repository, {
+      instructionsMode: 'off',
+      effortPresets: {
+        high: { claude: 'max', codex: 'max' },
+      },
+    });
+    mkdirSync(dirname(sourceAgent), { recursive: true });
+    writeFileSync(
+      sourceAgent,
+      '---\nname: maximum-effort-agent\ndescription: Maps a preset to maximum provider efforts\neffort: high\n---\n\n# Maximum effort agent\n',
+    );
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    assert.match(readFileSync(claudeAgent, 'utf8'), /^effort: max$/m);
+    assert.match(readFileSync(codexAgent, 'utf8'), /model_reasoning_effort = "max"/);
+  } finally {
+    environment.cleanup();
+  }
+});
+
 test('maps agent models for Claude, Codex, and Antigravity independently', () => {
   const environment = createTestEnvironment();
   try {
@@ -1199,7 +1287,7 @@ test('maps agent models for Claude, Codex, and Antigravity independently', () =>
       '---',
       'name: mapped-model-agent',
       'description: Maps models independently for each target',
-      'model: opus',
+      'model: flagship',
       '---',
       '',
       '# Mapped model agent',
@@ -1207,8 +1295,8 @@ test('maps agent models for Claude, Codex, and Antigravity independently', () =>
     ].join('\n');
     writeSyncConfig(environment.repository, {
       instructionsMode: 'off',
-      agentModelMap: {
-        opus: { claude: 'sonnet', codex: 'gpt-5.6-terra', antigravity: 'flash' },
+      modelPresets: {
+        flagship: { claude: 'sonnet', codex: 'gpt-5.6-terra', antigravity: 'flash' },
       },
     });
     mkdirSync(dirname(sourceAgent), { recursive: true });
@@ -1225,132 +1313,186 @@ test('maps agent models for Claude, Codex, and Antigravity independently', () =>
   }
 });
 
+test('maps every model preset to its provider-specific default model', () => {
+  const environment = createTestEnvironment();
+  try {
+    const presets = [
+      { name: 'flagship', claude: 'opus', codex: 'gpt-5.6-sol', antigravity: 'pro' },
+      { name: 'balanced', claude: 'sonnet', codex: 'gpt-5.6-terra', antigravity: 'pro' },
+      { name: 'fast', claude: 'haiku', codex: 'gpt-5.6-luna', antigravity: 'flash' },
+    ];
+    const agentDirectory = join(environment.repository, 'sources', 'agents');
+    writeSyncConfig(environment.repository, { instructionsMode: 'off' });
+    mkdirSync(agentDirectory, { recursive: true });
+
+    for (const preset of presets) {
+      writeFileSync(
+        join(agentDirectory, `${preset.name}-agent.md`),
+        `---\nname: ${preset.name}-agent\ndescription: Uses the ${preset.name} model preset\nmodel: ${preset.name}\n---\n`,
+      );
+    }
+
+    const result = runSync(environment);
+
+    assert.equal(result.status, 0, result.output);
+    for (const preset of presets) {
+      assert.match(
+        readFileSync(join(environment.home, '.claude', 'agents', `${preset.name}-agent.md`), 'utf8'),
+        new RegExp(`^model: ${preset.claude}$`, 'm'),
+      );
+      assert.match(
+        readFileSync(join(environment.home, '.codex', 'agents', `${preset.name}-agent.toml`), 'utf8'),
+        new RegExp(`model = "${escapeRegExp(preset.codex)}"`),
+      );
+      assert.match(
+        readFileSync(
+          join(environment.home, '.gemini', 'config', 'agents', `${preset.name}-agent`, 'agent.md'),
+          'utf8',
+        ),
+        new RegExp(`^model: ${preset.antigravity}$`, 'm'),
+      );
+    }
+  } finally {
+    environment.cleanup();
+  }
+});
+
 for (const invalidMapping of [
   {
-    name: 'invalid source model',
-    frontmatter: 'model: unmapped-model',
+    name: 'legacy Claude source model',
+    frontmatter: 'model: opus',
     config: {},
-    error: /Invalid source model "unmapped-model".*Expected one of: opus, sonnet, haiku/,
+    error: /Invalid source model preset "opus".*Expected one of: flagship, balanced, fast/,
   },
   {
     name: 'missing source model mapping',
-    frontmatter: 'model: sonnet',
+    frontmatter: 'model: balanced',
     config: {
-      agentModelMap: {
-        sonnet: null,
+      modelPresets: {
+        balanced: null,
       },
     },
-    error: /Missing agent model mapping for "sonnet"/,
+    error: /Missing model preset mapping for "balanced"/,
   },
   {
     name: 'missing Claude model mapping',
-    frontmatter: 'model: opus',
+    frontmatter: 'model: flagship',
     config: {
-      agentModelMap: {
-        opus: { codex: 'gpt-5.6-sol', antigravity: 'pro' },
+      modelPresets: {
+        flagship: { codex: 'gpt-5.6-sol', antigravity: 'pro' },
       },
     },
-    error: /Missing Claude model mapping for "opus"/,
+    error: /Missing Claude model preset mapping for "flagship"/,
   },
   {
     name: 'invalid Claude model mapping',
-    frontmatter: 'model: opus',
+    frontmatter: 'model: flagship',
     config: {
-      agentModelMap: {
-        opus: { claude: 'invalid', codex: 'gpt-5.6-sol', antigravity: 'pro' },
+      modelPresets: {
+        flagship: { claude: 'invalid', codex: 'gpt-5.6-sol', antigravity: 'pro' },
       },
     },
-    error: /Invalid Claude model mapping for "opus".*Expected one of: opus, sonnet, haiku/,
+    error: /Invalid Claude model preset mapping for "flagship".*Expected one of: opus, sonnet, haiku/,
   },
   {
     name: 'missing Codex model mapping',
-    frontmatter: 'model: opus',
+    frontmatter: 'model: flagship',
     config: {
-      agentModelMap: {
-        opus: { claude: 'opus', antigravity: 'pro' },
+      modelPresets: {
+        flagship: { claude: 'opus', antigravity: 'pro' },
       },
     },
-    error: /Missing Codex model mapping for "opus"/,
+    error: /Missing Codex model preset mapping for "flagship"/,
   },
   {
     name: 'invalid Codex model mapping',
-    frontmatter: 'model: opus',
+    frontmatter: 'model: flagship',
     config: {
-      agentModelMap: {
-        opus: { claude: 'opus', codex: '', antigravity: 'pro' },
+      modelPresets: {
+        flagship: { claude: 'opus', codex: '', antigravity: 'pro' },
       },
     },
-    error: /Invalid Codex model mapping for "opus".*Expected a non-empty string/,
+    error: /Invalid Codex model preset mapping for "flagship".*Expected a non-empty string/,
   },
   {
     name: 'missing Antigravity model mapping',
-    frontmatter: 'model: opus',
+    frontmatter: 'model: flagship',
     config: {
-      agentModelMap: {
-        opus: { claude: 'opus', codex: 'gpt-5.6-sol' },
+      modelPresets: {
+        flagship: { claude: 'opus', codex: 'gpt-5.6-sol' },
       },
     },
-    error: /Missing Antigravity model mapping for "opus"/,
+    error: /Missing Antigravity model preset mapping for "flagship"/,
   },
   {
     name: 'invalid Antigravity model mapping',
-    frontmatter: 'model: opus',
+    frontmatter: 'model: flagship',
     config: {
-      agentModelMap: {
-        opus: { claude: 'opus', codex: 'gpt-5.6-sol', antigravity: 'invalid' },
+      modelPresets: {
+        flagship: { claude: 'opus', codex: 'gpt-5.6-sol', antigravity: 'invalid' },
       },
     },
-    error: /Invalid Antigravity model mapping for "opus".*Expected "flash" or "pro"/,
+    error: /Invalid Antigravity model preset mapping for "flagship".*Expected "flash" or "pro"/,
   },
   {
     name: 'missing source reasoning effort mapping',
-    frontmatter: 'effort: max',
+    frontmatter: 'effort: high',
     config: {
-      agentEffortMap: {
-        max: null,
+      effortPresets: {
+        high: null,
       },
     },
-    error: /Missing agent reasoning effort mapping for "max"/,
+    error: /Missing effort preset mapping for "high"/,
   },
   {
-    name: 'invalid source reasoning effort',
+    name: 'invalid source effort preset',
     frontmatter: 'effort: unmapped-effort',
     config: {
-      agentEffortMap: {
+      effortPresets: {
         'unmapped-effort': { claude: 'high', codex: 'high' },
       },
     },
-    error: /Invalid source reasoning effort "unmapped-effort".*Expected one of: low, medium, high, xhigh, max/,
+    error: /Invalid source effort preset "unmapped-effort".*Expected one of: low, medium, high/,
+  },
+  {
+    name: 'legacy xhigh source effort preset',
+    frontmatter: 'effort: xhigh',
+    error: /Invalid source effort preset "xhigh".*Expected one of: low, medium, high/,
+  },
+  {
+    name: 'legacy max source effort preset',
+    frontmatter: 'effort: max',
+    error: /Invalid source effort preset "max".*Expected one of: low, medium, high/,
   },
   {
     name: 'missing Claude reasoning effort mapping',
-    frontmatter: 'effort: max',
+    frontmatter: 'effort: high',
     config: {
-      agentEffortMap: {
-        max: { codex: 'max' },
+      effortPresets: {
+        high: { codex: 'max' },
       },
     },
-    error: /Missing Claude reasoning effort mapping for "max"/,
+    error: /Missing Claude effort preset mapping for "high"/,
   },
   {
     name: 'invalid Claude reasoning effort mapping',
-    frontmatter: 'effort: max',
+    frontmatter: 'effort: high',
     config: {
-      agentEffortMap: {
-        max: { claude: 'invalid', codex: 'max' },
+      effortPresets: {
+        high: { claude: 'invalid', codex: 'max' },
       },
     },
-    error: /Invalid Claude reasoning effort mapping for "max".*Expected one of: low, medium, high, xhigh, max/,
+    error: /Invalid Claude effort preset mapping for "high".*Expected one of: low, medium, high, xhigh, max/,
   },
   {
     name: 'invalid Codex reasoning effort mapping',
-    frontmatter: 'effort: max',
+    frontmatter: 'effort: high',
     config: {
-      agentEffortMap: {
-        max: { claude: 'max', codex: 'invalid' },
+      effortPresets: {
+        high: { claude: 'max', codex: 'invalid' },
       },
     },
-    error: /Invalid Codex reasoning effort mapping for "max".*Expected one of: none, low, medium, high, xhigh, max/,
+    error: /Invalid Codex effort preset mapping for "high".*Expected one of: none, low, medium, high, xhigh, max/,
   },
 ]) {
   test(`${invalidMapping.name} aborts before writing targets or backups`, () => {
@@ -1393,7 +1535,7 @@ test('allows the documented skill and agent frontmatter fields', () => {
     );
     writeFileSync(
       join(agentDirectory, 'documented-agent.md'),
-      '---\nname: documented-agent\ndescription: Uses all shared agent metadata\nmodel: opus\neffort: max\n---\n\n# Documented agent\n',
+      '---\nname: documented-agent\ndescription: Uses all shared agent metadata\nmodel: flagship\neffort: high\n---\n\n# Documented agent\n',
     );
 
     const result = runSync(environment);
@@ -1418,7 +1560,7 @@ test('parses inline comments and quoted scalar frontmatter values', () => {
     );
     writeFileSync(
       join(agentDirectory, 'quoted-agent.md'),
-      '---\nname: "quoted-agent" # source name\ndescription: "Reviews \\"quoted\\" changes # safely" # source description\nmodel: "opus" # source model\neffort: \'max\' # source effort\n---\n\n# Quoted agent\n',
+      '---\nname: "quoted-agent" # source name\ndescription: "Reviews \\"quoted\\" changes # safely" # source description\nmodel: "flagship" # source model preset\neffort: \'high\' # source effort\n---\n\n# Quoted agent\n',
     );
 
     const result = runSync(environment);
@@ -1646,9 +1788,22 @@ function createBackupFixture(backupRoot, name) {
 }
 
 function writeSyncConfig(repository, overrides) {
-  const configPath = join(repository, 'sync.config.json');
-  const config = JSON.parse(readFileSync(configPath, 'utf8'));
-  writeFileSync(configPath, `${JSON.stringify({ ...config, ...overrides }, null, 2)}\n`);
+  const configPath = join(repository, 'config', 'sync.config.json');
+  const defaultConfigPath = join(repository, 'config', 'sync.config.default.json');
+  const basePath = existsSync(configPath) ? configPath : defaultConfigPath;
+  const config = JSON.parse(readFileSync(basePath, 'utf8'));
+  const content = `${JSON.stringify({ ...config, ...overrides }, null, 2)}\n`;
+  writeFileSync(configPath, content);
+}
+
+function deleteConfigField(repository, fieldName) {
+  const configPath = join(repository, 'config', 'sync.config.json');
+  const defaultConfigPath = join(repository, 'config', 'sync.config.default.json');
+  const basePath = existsSync(configPath) ? configPath : defaultConfigPath;
+  const config = JSON.parse(readFileSync(basePath, 'utf8'));
+  delete config[fieldName];
+  const content = `${JSON.stringify(config, null, 2)}\n`;
+  writeFileSync(configPath, content);
 }
 
 function escapeRegExp(value) {
