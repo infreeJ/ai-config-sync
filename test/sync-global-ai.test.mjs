@@ -1392,7 +1392,7 @@ for (const invalidMapping of [
         flagship: { claude: 'invalid', codex: 'gpt-5.6-sol', antigravity: 'pro' },
       },
     },
-    error: /Invalid Claude model preset mapping for "flagship".*Expected one of: opus, sonnet, haiku/,
+    error: /Invalid Claude model preset mapping for "flagship".*Expected a Claude alias or claude-\* model ID/,
   },
   {
     name: 'missing Codex model mapping',
@@ -1492,7 +1492,7 @@ for (const invalidMapping of [
         high: { claude: 'max', codex: 'invalid' },
       },
     },
-    error: /Invalid Codex effort preset mapping for "high".*Expected one of: none, low, medium, high, xhigh, max/,
+    error: /Invalid Codex effort preset mapping for "high".*Expected one of: none, minimal, low, medium, high, xhigh, max, ultra/,
   },
 ]) {
   test(`${invalidMapping.name} aborts before writing targets or backups`, () => {
@@ -1808,4 +1808,40 @@ function deleteConfigField(repository, fieldName) {
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+for (const model of ['default', 'fable', 'claude-sonnet-test']) {
+  test(`offline sync accepts CLI model contract ${model} and outputs its exact ID`, () => {
+    const environment = createTestEnvironment({ enableAllProviders: false });
+    try {
+      writeSyncConfig(environment.repository, {
+        instructionsMode: 'off',
+        modelPresets: { balanced: { claude: model, codex: 'gpt-cli-model' } },
+        effortPresets: { high: { claude: 'max', codex: 'ultra' } },
+      });
+      const source = join(environment.repository, 'sources', 'agents', 'cli-agent.md');
+      writeFileSync(source, '---\nname: cli-agent\ndescription: CLI catalog model\nmodel: balanced\neffort: high\n---\nInstructions\n');
+      const result = runSync(environment);
+      assert.equal(result.status, 0, result.output);
+      assert.match(readFileSync(join(environment.home, '.claude', 'agents', 'cli-agent.md'), 'utf8'), new RegExp(`^model: ${model}$`, 'm'));
+      const codex = readFileSync(join(environment.home, '.codex', 'agents', 'cli-agent.toml'), 'utf8');
+      assert.match(codex, /^model = "gpt-cli-model"$/m);
+      assert.match(codex, /^model_reasoning_effort = "ultra"$/m);
+    } finally { environment.cleanup(); }
+  });
+}
+
+for (const [provider, model] of [['claude', 'gpt-model'], ['claude', 'opus\neffort: max'], ['codex', 'claude-sonnet-test'], ['codex', 'gpt-model\ninjected = true']]) {
+  test(`rejects unsafe or other-provider ${provider} model ${JSON.stringify(model)}`, () => {
+    const environment = createTestEnvironment({ enableAllProviders: false });
+    try {
+      writeSyncConfig(environment.repository, { modelPresets: { balanced: { claude: 'opus', codex: 'gpt-model', [provider]: model } } });
+      writeFileSync(join(environment.repository, 'sources', 'agents', 'unsafe.md'), '---\nname: unsafe\ndescription: Unsafe mapping\nmodel: balanced\n---\nBody\n');
+      const result = runSync(environment);
+      assert.equal(result.status, 1, result.output);
+      assert.match(result.output, new RegExp(`Invalid ${provider === 'claude' ? 'Claude' : 'Codex'} model preset mapping`));
+      assert.equal(existsSync(join(environment.home, '.claude', 'agents', 'unsafe.md')), false);
+      assert.equal(existsSync(join(environment.home, '.codex', 'agents', 'unsafe.toml')), false);
+    } finally { environment.cleanup(); }
+  });
 }

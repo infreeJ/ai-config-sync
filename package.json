@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "config": "node scripts/configure-sync.mjs",
     "init": "node scripts/init-sources.mjs",
     "test": "node --test",
     "sync": "node scripts/sync-global-ai.mjs",
