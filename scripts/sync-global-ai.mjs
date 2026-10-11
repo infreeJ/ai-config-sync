@@ -14,13 +14,12 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { loadSyncConfig } from './lib/sync-config.mjs';
 
 const ROOT = resolve(join(dirname(fileURLToPath(import.meta.url)), '..'));
 const SOURCE_ROOT = join(ROOT, 'sources');
 const SOURCE_SKILLS = join(SOURCE_ROOT, 'skills');
 const SOURCE_AGENTS = join(SOURCE_ROOT, 'agents');
-const CONFIG_FILE = join(ROOT, 'config', 'sync.config.json');
-const CONFIG_DEFAULT_FILE = join(ROOT, 'config', 'sync.config.default.json');
 const BACKUP_ROOT = join(ROOT, 'backup');
 const DRY_RUN_REQUESTED = process.argv.includes('--dry-run');
 const YES_REQUESTED = process.argv.includes('--yes');
@@ -39,15 +38,6 @@ function color(text, ...styles) {
   if (!USE_COLOR) return text;
   return `${styles.map((style) => ANSI[style]).join('')}${text}${ANSI.reset}`;
 }
-
-function readDefaultConfig() {
-  if (!existsSync(CONFIG_DEFAULT_FILE)) {
-    throw new Error(`Config default file is missing: ${CONFIG_DEFAULT_FILE}. Run: npm run init`);
-  }
-  return JSON.parse(readFileSync(CONFIG_DEFAULT_FILE, 'utf8'));
-}
-
-const DEFAULT_CONFIG = readDefaultConfig();
 
 const home = process.env.USERPROFILE || process.env.HOME;
 if (!home) {
@@ -115,10 +105,6 @@ const HEADER = 'AUTO-GENERATED from ai-config-sync. Edit the source under source
 const MANAGED_INSTRUCTION_BEGIN = '<!-- ai-config-sync:begin instruction -->';
 const MANAGED_INSTRUCTION_END = '<!-- ai-config-sync:end instruction -->';
 const MANAGED_INSTRUCTION_SOURCE = `<!-- AUTO-GENERATED from ${SOURCE_ROOT} -->`;
-const INSTRUCTION_MODES = new Set(['append', 'off', 'sidecar', 'managed']);
-const PRE_COMMIT_SYNC_MODES = new Set(['on', 'off']);
-const BACKUP_MODES = new Set(['on', 'off']);
-const PROVIDER_NAMES = new Set(['claude', 'codex', 'antigravity']);
 const SKILL_FRONTMATTER_FIELDS = new Set(['name', 'description']);
 const AGENT_FRONTMATTER_FIELDS = new Set(['name', 'description', 'model', 'effort']);
 const MODEL_PRESETS = new Set(['flagship', 'balanced', 'fast']);
@@ -158,59 +144,7 @@ function resetRunState(dryRun) {
   plannedCreates = new Set();
 }
 
-function readConfig() {
-  if (!existsSync(CONFIG_FILE)) return DEFAULT_CONFIG;
-  const userConfig = JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
-  return {
-    ...DEFAULT_CONFIG,
-    ...userConfig,
-    modelPresets: {
-      ...DEFAULT_CONFIG.modelPresets,
-      ...(userConfig.modelPresets || {}),
-    },
-    effortPresets: {
-      ...DEFAULT_CONFIG.effortPresets,
-      ...(userConfig.effortPresets || {}),
-    },
-    providers:
-      userConfig.providers === undefined
-        ? DEFAULT_CONFIG.providers
-        : isProviderConfig(userConfig.providers)
-          ? { ...DEFAULT_CONFIG.providers, ...userConfig.providers }
-          : userConfig.providers,
-  };
-}
-
-function isProviderConfig(value) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-const config = readConfig();
-if (!INSTRUCTION_MODES.has(config.instructionsMode)) {
-  throw new Error(
-    `Invalid instructionsMode "${config.instructionsMode}". Expected one of: append, off, sidecar, managed.`,
-  );
-}
-if (!PRE_COMMIT_SYNC_MODES.has(config.preCommitSync)) {
-  throw new Error(`Invalid preCommitSync "${config.preCommitSync}". Expected one of: on, off.`);
-}
-if (!BACKUP_MODES.has(config.backup)) {
-  throw new Error(`Invalid backup "${config.backup}". Expected one of: on, off.`);
-}
-if (!Number.isInteger(config.backupRetentionCount) || config.backupRetentionCount < 1) {
-  throw new Error('Invalid backupRetentionCount. Expected an integer greater than or equal to 1.');
-}
-if (!isProviderConfig(config.providers)) {
-  throw new Error('Invalid providers. Expected an object with supported provider names as boolean values.');
-}
-for (const [provider, enabled] of Object.entries(config.providers)) {
-  if (!PROVIDER_NAMES.has(provider)) {
-    throw new Error(`Unsupported provider "${provider}". Expected one of: ${[...PROVIDER_NAMES].join(', ')}.`);
-  }
-  if (typeof enabled !== 'boolean') {
-    throw new Error(`Invalid provider setting "${provider}". Expected a boolean.`);
-  }
-}
+const config = loadSyncConfig(ROOT).config;
 const instructionMode = config.instructionsMode;
 const preCommitSync = config.preCommitSync;
 const backup = config.backup;
