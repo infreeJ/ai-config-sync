@@ -98,28 +98,64 @@ export async function codexModels({ signal, spawnProcess = spawn, command = exec
   }
 }
 
-export async function claudeModels({ signal, loadSdk = () => import('@anthropic-ai/claude-agent-sdk'), command = executable('claude') } = {}) {
-  const { query } = await loadSdk();
-  const controller = new AbortController();
-  let session;
-  const abort = () => { controller.abort(); session?.close(); };
+// The CLI's initialization control response contains the same model capabilities
+// as supportedModels(). Keep stdin open until it arrives; never send a user turn.
+export async function claudeModels({ signal, spawnProcess = spawn, command = executable('claude') } = {}) {
+  if (signal?.aborted) throw new Error('모델 조회를 취소했습니다.');
+  const child = spawnProcess(command, [
+    '--print', '--input-format', 'stream-json', '--output-format', 'stream-json',
+    '--verbose', '--no-session-persistence', '--setting-sources', '',
+    '--settings', '{"disableAllHooks":true}', '--tools', '',
+    '--strict-mcp-config', '--disable-slash-commands',
+  ], { cwd: tmpdir(), stdio: ['pipe', 'pipe', 'pipe'] });
+  const lines = createInterface({ input: child.stdout });
+  const requestId = 'ai-config-sync-initialize';
+  let resolveResponse;
+  let rejectResponse;
+  const response = new Promise((resolve, reject) => { resolveResponse = resolve; rejectResponse = reject; });
+  const incompatible = () => rejectResponse(new Error('Claude CLI 초기화 응답 형식이 호환되지 않습니다. CLI와 도구 버전을 확인해 주세요.'));
+  const abort = () => rejectResponse(new Error('모델 조회를 취소했습니다.'));
+  child.on('error', () => rejectResponse(new Error('Claude CLI 실행에 실패했습니다. CLI 설치·실행 권한을 확인해 주세요.')));
+  const communicationFailure = () => rejectResponse(new Error('Claude CLI 통신에 실패했습니다. CLI 설치·인증 상태를 확인해 주세요.'));
+  child.stdin.on('error', communicationFailure);
+  lines.on('error', communicationFailure);
+  // readline forwards input errors only while open; retain this during teardown.
+  child.stdout.on('error', communicationFailure);
+  child.stderr.on('error', communicationFailure);
+  // Do not display raw stderr or control errors: they may contain private settings.
+  child.stderr.resume();
+  child.on('exit', (code) => rejectResponse(new Error(`Claude CLI가 조회 중 종료되었습니다 (코드 ${code ?? 'signal'}). 설치·인증 상태를 확인해 주세요.`)));
+  lines.on('line', (line) => {
+    let message;
+    try { message = JSON.parse(line); } catch { rejectResponse(new Error('Claude CLI가 올바르지 않은 JSON을 반환했습니다. CLI와 도구 버전을 확인해 주세요.')); return; }
+    if (!message || typeof message !== 'object' || Array.isArray(message) || typeof message.type !== 'string') { incompatible(); return; }
+    if (message.type === 'control_request') { incompatible(); return; }
+    if (message.type !== 'control_response') return;
+    const reply = message.response;
+    if (!reply || typeof reply !== 'object' || Array.isArray(reply) || typeof reply.request_id !== 'string' || typeof reply.subtype !== 'string') { incompatible(); return; }
+    if (reply.request_id !== requestId) return;
+    if (reply.subtype === 'error') {
+      rejectResponse(new Error('Claude CLI 초기화에 실패했습니다. CLI 로그인·연결 상태를 확인해 주세요.'));
+      return;
+    }
+    if (reply.subtype !== 'success' || !Array.isArray(reply.response?.models)) { incompatible(); return; }
+    resolveResponse(reply.response.models);
+  });
   signal?.addEventListener('abort', abort, { once: true });
-  async function* noMessages() {
-    if (!controller.signal.aborted) await new Promise((resolve) => controller.signal.addEventListener('abort', resolve, { once: true }));
-  }
   try {
     if (signal?.aborted) throw new Error('모델 조회를 취소했습니다.');
-    session = query({ prompt: noMessages(), options: {
-      pathToClaudeCodeExecutable: command,
-      cwd: tmpdir(), abortController: controller,
-      settingSources: [], tools: [], mcpServers: {}, persistSession: false,
-      settings: { disableAllHooks: true }, extraArgs: { 'strict-mcp-config': null },
-    } });
-    return normalize('claude', await session.supportedModels());
+    child.stdin.write(`${JSON.stringify({ type: 'control_request', request_id: requestId, request: { subtype: 'initialize' } })}\n`);
+    return normalize('claude', await response);
   } finally {
     signal?.removeEventListener('abort', abort);
-    controller.abort();
-    session?.close();
+    lines.close();
+    child.stdin.end();
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGTERM');
+      const killTimer = setTimeout(() => child.kill('SIGKILL'), 500);
+      killTimer.unref();
+      child.once('exit', () => clearTimeout(killTimer));
+    }
   }
 }
 
@@ -141,7 +177,7 @@ export async function queryProviderCatalog(provider, { signal, timeoutMs = 15000
     });
     const models = await Promise.race([cancelled, Promise.resolve().then(() => adapters[provider]({ signal: controller.signal }))]);
     if (!Array.isArray(models) || models.length === 0) throw new Error('CLI가 빈 모델 목록을 반환했습니다.');
-    return { status: 'ready', models, source: provider === 'claude' ? 'Claude Agent SDK supportedModels' : 'Codex app-server model/list' };
+    return { status: 'ready', models, source: provider === 'claude' ? 'Claude CLI stream-json initialize' : 'Codex app-server model/list' };
   } catch (error) {
     return { status: 'error', models: [], error: timedOut ? `모델 조회 시간이 초과되었습니다 (${timeoutMs}ms). 재조회해 주세요.` : error.message };
   } finally {
