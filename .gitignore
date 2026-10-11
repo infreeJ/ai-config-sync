@@ -3,3 +3,4 @@
 backup/
 debug.log
 config/sync.config.json
+node_modules/

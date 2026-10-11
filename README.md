@@ -39,9 +39,28 @@ npm run sync:dry
 npm run config
 ```
 
-대화형 터미널에서 번호를 선택하여 지시문 반영 방식, 커밋 전 자동 동기화, 백업 여부·보존 개수, Claude·Codex 동기화 여부를 변경합니다. 각 항목의 현재 값과 설명이 표시되며, 변경 내역을 확인하고 `y`로 저장해야 파일에 반영됩니다. 돌아가기, 취소, 입력 종료는 변경을 저장하지 않습니다.
+대화형 터미널에서 번호를 선택하여 지시문 반영 방식, 커밋 전 자동 동기화, 백업 여부·보존 개수, Claude·Codex 동기화 여부와 모델·추론 프리셋을 변경합니다. 각 항목의 현재 값과 설명이 표시되며, 변경 내역을 확인하고 `y`로 저장해야 파일에 반영됩니다. 돌아가기, 취소, 입력 종료는 변경을 저장하지 않습니다.
 
-`config/sync.config.json`이 없어도 기본값으로 시작하며 최초 저장 시 파일을 만듭니다. 모델·추론 프리셋, Antigravity 설정, 기타 기존 설정은 유지합니다. Antigravity는 이번 메뉴의 편집 대상에서 제외됩니다.
+`config/sync.config.json`이 없어도 기본값으로 시작하며 최초 저장 시 파일을 만듭니다. Antigravity 설정과 기타 기존 설정은 유지합니다. Antigravity는 이번 메뉴의 편집 대상에서 제외됩니다.
+
+모델·추론 프리셋 편집을 사용하려면 먼저 의존성을 설치하고, 사용할 Claude·Codex CLI를 설치·로그인하세요. 이미 설치한 Claude CLI를 사용하므로 SDK의 선택적 플랫폼 바이너리는 필요하지 않습니다.
+
+```sh
+npm install --omit=optional
+npm run config
+```
+
+- 모델 메뉴에서 `flagship`, `balanced`, `fast` 각각의 Claude·Codex 값을 편집합니다 (6개).
+- 추론 메뉴에서 `low`, `medium`, `high` 각각의 Claude·Codex 값을 독립적으로 편집합니다 (6개).
+- 각 항목에는 현재 값, 공식 CLI 조회 상태, 실제 선택지, 모델별 추론 지원 정보가 표시됩니다. Claude 별칭에 실제 모델 ID가 제공되면 함께 표시합니다.
+- Claude는 공식 [Agent SDK의 supportedModels](https://platform.claude.com/docs/en/agent-sdk/typescript#modelinfo), Codex는 공식 [app-server의 model/list](https://learn.chatgpt.com/docs/app-server#list-models-modellist)를 사용합니다. 플랫폼 API 전체 모델 목록을 선택지로 사용하지 않습니다.
+- CLI 미설치, 인증 오류, 시간 초과, 빈 목록이면 이유를 표시하고 해당 항목의 변경을 제한합니다. 재조회하거나 돌아가 일반 설정을 계속 편집할 수 있습니다. 하드코딩한 목록으로 대체하지 않습니다. 재조회가 실패해도 이 세션에서 성공한 조회로 이미 선택한 값은 마지막 성공 응답으로 조합을 검증해 일반 설정과 함께 저장할 수 있습니다. 실패한 화면에서 새 선택지는 제공하지 않습니다. 추론 지원 정보가 누락된 모델에는 추론 선택지를 추정하지 않습니다.
+
+목록 조회는 추론 메시지를 보내지 않습니다. Claude 조회에서는 프로젝트 설정·일반 사용자 hooks·MCP를 비활성화하고 대화를 저장하지 않습니다. 조회는 15초 후 중단되며 조회 중 `Ctrl+C`는 조회만 취소합니다. 메뉴에서 편집을 계속할 수 있고, 일반 메뉴에서 `Ctrl+C`는 저장 없이 전체를 취소합니다. 반환된 카탈로그는 [계정의 모델 사용 권한을 보장하지 않습니다](https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server).
+
+프리셋을 바꾸면 저장 전에 `sources/agents/*.md`의 실제 조합을 검사합니다. 예를 들어 `model: fast`와 `effort: high`를 쓰는 에이전트도 `fast` 모델의 `high` 지원 여부를 확인하며, 지원하지 않으면 해당 에이전트·이유를 표시하고 저장을 막습니다. 프리셋을 수정한 뒤 다시 저장하세요. 원본이 없으면 설정할 수 있지만 조합을 확인하지 못했다는 안내가 표시됩니다. 모델을 상속하는 에이전트도 지원 여부 확인 불가를 알립니다.
+
+동기화와 Git hook은 오프라인으로 실행할 수 있도록 실시간 카탈로그 조회를 요구하지 않습니다. 이때는 모델 ID와 추론 수준의 출력 형식만 검사하므로, CLI 업데이트 후 모델 지원이 바뀌었다면 메뉴에서 재조회하세요.
 
 설정 저장은 동기화나 Git hook 설치를 실행하지 않습니다. 저장 후 `npm run sync:dry`로 변경 계획을 확인하세요. `preCommitSync`를 켰다면 아래의 Git hook 설치 안내도 따라야 합니다.
 
