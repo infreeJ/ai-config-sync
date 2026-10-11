@@ -32,7 +32,7 @@ async function menu(root, answers, onOutput, queryCatalog, env = { NO_COLOR: '' 
 
 test('menu creates settings without sources and edits all general fields', async (t) => {
   const root = fixture(t);
-  await menu(root, '1\n3\n2\n1\n3\n2\n4\n4\ninvalid\n0.5\n37\n5\n2\n6\n2\n7\ny\n');
+  await menu(root, '1\n3\n2\n1\n3\n2\n4\n4\ninvalid\n0.5\n37\n5\n2\n6\n2\n9\ny\n');
   const { config } = loadSyncConfig(root);
   assert.equal(config.instructionsMode, 'sidecar');
   assert.equal(config.preCommitSync, 'on');
@@ -47,7 +47,7 @@ test('menu creates settings without sources and edits all general fields', async
 test('save preserves custom mappings, Antigravity and unrelated keys', async (t) => {
   const root = fixture(t, { custom: { keep: true }, providers: { antigravity: true }, modelPresets: { flagship: { codex: 'custom-model', antigravity: 'pro' } }, effortPresets: { high: { codex: 'xhigh' } } });
   const before = loadSyncConfig(root).config;
-  await menu(root, '3\n2\n7\ny\n');
+  await menu(root, '3\n2\n9\ny\n');
   const after = loadSyncConfig(root).config;
   assert.deepEqual(after.modelPresets, before.modelPresets);
   assert.deepEqual(after.effortPresets, before.effortPresets);
@@ -55,7 +55,7 @@ test('save preserves custom mappings, Antigravity and unrelated keys', async (t)
   assert.equal(after.providers.antigravity, true);
 });
 
-for (const answers of ['1\n4\n0\n', '3\n2\n', '4\n0\n0\n', '7\nn\n0\n']) {
+for (const answers of ['1\n4\n0\n', '3\n2\n', '4\n0\n0\n', '9\nn\n0\n']) {
   test(`cancel or EOF preserves existing bytes: ${JSON.stringify(answers)}`, async (t) => {
     const root = fixture(t, { instructionsMode: 'append' });
     const file = loadSyncConfig(root).file;
@@ -69,7 +69,7 @@ test('invalid JSON remains unchanged', async (t) => {
   const root = fixture(t);
   const file = join(root, 'config', 'sync.config.json');
   writeFileSync(file, '{invalid');
-  await assert.rejects(menu(root, '7\ny\n'), SyntaxError);
+  await assert.rejects(menu(root, '9\ny\n'), SyntaxError);
   assert.equal(readFileSync(file, 'utf8'), '{invalid');
 });
 
@@ -209,7 +209,7 @@ test('exclusive creation collision preserves the preexisting temporary path', (t
 
 test('SIGINT cancels before save', async (t) => {
   const root = fixture(t);
-  const output = await menu(root, '1\n4\n7\ny\n', (chunk) => {
+  const output = await menu(root, '1\n4\n9\ny\n', (chunk) => {
     if (chunk.includes('저장하시겠습니까')) process.emit('SIGINT');
   });
   assert.match(output, /취소했습니다/);
@@ -229,12 +229,12 @@ const liveCatalog = async (provider) => ({ status: 'ready', source: 'test CLI', 
 test('edits all twelve presets from CLI choices and preserves Antigravity', async (t) => {
   const root = fixture(t, { providers: { antigravity: true }, modelPresets: { flagship: { claude: 'opus', codex: 'gpt-existing', antigravity: 'pro', extra: true } } });
   const answers = [];
-  for (const field of [8, 9]) for (const provider of [1, 2]) {
+  for (const field of [7, 8]) for (const provider of [1, 2]) {
     answers.push(field, provider);
-    for (let preset = 1; preset <= 3; preset++) answers.push(preset, field === 8 ? 1 : 4);
+    for (let preset = 1; preset <= 3; preset++) answers.push(preset, field === 7 ? 1 : 4);
     answers.push(0, 0);
   }
-  answers.push(7, 'y');
+  answers.push(9, 'y');
   const text = await menu(root, `${answers.join('\n')}\n`, undefined, liveCatalog);
   const { config } = loadSyncConfig(root);
   for (const preset of ['flagship', 'balanced', 'fast']) {
@@ -257,7 +257,7 @@ test('lookup failure restricts preset changes but allows general edits and retry
   const root = fixture(t);
   const before = loadSyncConfig(root).config;
   let calls = 0;
-  const text = await menu(root, '8\n1\n1\n1\n0\n0\n0\n3\n2\n7\ny\n', undefined, async () => {
+  const text = await menu(root, '7\n1\n1\n1\n0\n0\n0\n3\n2\n9\ny\n', undefined, async () => {
     calls++;
     return { status: 'error', models: [], error: '인증 실패' };
   });
@@ -271,7 +271,7 @@ test('lookup failure restricts preset changes but allows general edits and retry
 
 test('missing effort capability disables effort editing without fallback', async (t) => {
   const root = fixture(t);
-  const text = await menu(root, '9\n1\n1\n0\n0\n0\n7\ny\n', undefined, async () => ({ status: 'ready', models: [{ value: 'fable', label: 'Fable', efforts: null }] }));
+  const text = await menu(root, '8\n1\n1\n0\n0\n0\n9\ny\n', undefined, async () => ({ status: 'ready', models: [{ value: 'fable', label: 'Fable', efforts: null }] }));
   assert.match(text, /추론 지원 정보가 없어/);
   assert.equal(loadSyncConfig(root).config.effortPresets.low.claude, 'low');
 });
@@ -285,7 +285,7 @@ test('save checks actual independent preset combinations and permits correction'
     { value: 'sonnet', label: 'Sonnet', efforts: ['low', 'high'] },
   ] });
   // high -> low is valid; then fast -> sonnet, high -> high are independently valid.
-  const text = await menu(root, '8\n1\n3\n2\n0\n0\n9\n1\n3\n1\n0\n0\n8\n1\n3\n1\n0\n0\n9\n1\n3\n2\n0\n0\n7\n8\n1\n3\n2\n0\n0\n7\ny\n', undefined, catalog);
+  const text = await menu(root, '7\n1\n3\n2\n0\n0\n8\n1\n3\n1\n0\n0\n7\n1\n3\n1\n0\n0\n8\n1\n3\n2\n0\n0\n9\n7\n1\n3\n2\n0\n0\n9\ny\n', undefined, catalog);
   assert.match(text, /fast-high.md.*haiku은 high을 지원하지 않습니다/);
   assert.match(text, /저장할 수 없습니다/);
   assert.equal(loadSyncConfig(root).config.modelPresets.fast.claude, 'sonnet');
@@ -295,7 +295,7 @@ test('inherited model emits a concrete unverifiable capability notice', async (t
   const root = fixture(t);
   mkdirSync(join(root, 'sources', 'agents'), { recursive: true });
   writeFileSync(join(root, 'sources', 'agents', 'inherited.md'), '---\nname: inherited\ndescription: Example\neffort: high\n---\nBody');
-  const text = await menu(root, '9\n1\n3\n4\n0\n0\n7\ny\n', undefined, liveCatalog);
+  const text = await menu(root, '8\n1\n3\n4\n0\n0\n9\ny\n', undefined, liveCatalog);
   assert.match(text, /inherited.md.*모델을 상속하므로/);
   assert.equal(loadSyncConfig(root).config.effortPresets.high.claude, 'max');
 });
@@ -309,7 +309,7 @@ test('ultra from Codex catalog is restricted by the actual model and can be corr
     { value: 'gpt-luna', label: 'Luna', efforts: ['high'] },
     { value: 'gpt-sol', label: 'Sol', efforts: ['high', 'ultra'] },
   ] });
-  const text = await menu(root, '8\n2\n3\n1\n0\n0\n9\n2\n3\n2\n0\n0\n7\n8\n2\n3\n2\n0\n0\n7\ny\n', undefined, catalog);
+  const text = await menu(root, '7\n2\n3\n1\n0\n0\n8\n2\n3\n2\n0\n0\n9\n7\n2\n3\n2\n0\n0\n9\ny\n', undefined, catalog);
   assert.match(text, /ultra-agent.md.*gpt-luna은 ultra을 지원하지 않습니다/);
   assert.equal(loadSyncConfig(root).config.modelPresets.fast.codex, 'gpt-sol');
   assert.equal(loadSyncConfig(root).config.effortPresets.high.codex, 'ultra');
@@ -326,7 +326,7 @@ test('symlinked source agent is checked, while hidden draft is ignored like sync
     { value: 'haiku', label: 'Haiku', efforts: ['low'] },
     { value: 'sonnet', label: 'Sonnet', efforts: ['high'] },
   ] });
-  const text = await menu(root, '8\n1\n3\n1\n0\n0\n7\n8\n1\n3\n2\n0\n0\n7\ny\n', undefined, catalog);
+  const text = await menu(root, '7\n1\n3\n1\n0\n0\n9\n7\n1\n3\n2\n0\n0\n9\ny\n', undefined, catalog);
   // The symlinked haiku + high combination is rejected; sonnet + high is valid.
   assert.doesNotMatch(text, /draft.md/);
   assert.match(text, /linked.md.*haiku은 high을 지원하지 않습니다/);
@@ -335,7 +335,7 @@ test('symlinked source agent is checked, while hidden draft is ignored like sync
 
 test('Ctrl+C during lookup preserves edits and returns to the menu', async (t) => {
   const root = fixture(t);
-  const text = await menu(root, '3\n2\n8\n1\n1\n0\n0\n0\n7\ny\n', undefined, async (provider, { signal }) => {
+  const text = await menu(root, '3\n2\n7\n1\n1\n0\n0\n0\n9\ny\n', undefined, async (provider, { signal }) => {
     process.emit('SIGINT');
     assert.equal(signal.aborted, true);
     return { status: 'error', error: '모델 조회를 취소했습니다.', models: [] };
@@ -348,7 +348,7 @@ test('missing effort mapping blocks save even when model is inherited', async (t
   const root = fixture(t, { effortPresets: { high: { codex: 'high' } } });
   mkdirSync(join(root, 'sources', 'agents'), { recursive: true });
   writeFileSync(join(root, 'sources', 'agents', 'missing-effort.md'), '---\nname: missing-effort\ndescription: Example\neffort: high\n---\nBody');
-  const text = await menu(root, '8\n1\n1\n1\n0\n0\n7\n9\n1\n3\n4\n0\n0\n7\ny\n', undefined, liveCatalog);
+  const text = await menu(root, '7\n1\n1\n1\n0\n0\n9\n8\n1\n3\n4\n0\n0\n9\ny\n', undefined, liveCatalog);
   assert.match(text, /missing-effort.md.*추론 프리셋 매핑이 누락/);
   assert.match(text, /모델을 상속하므로/);
   assert.equal(loadSyncConfig(root).config.effortPresets.high.claude, 'max');
@@ -359,7 +359,7 @@ test('failed refresh restricts new selections but keeps earlier verified draft a
   mkdirSync(join(root, 'sources', 'agents'), { recursive: true });
   writeFileSync(join(root, 'sources', 'agents', 'already-verified.md'), '---\nname: already-verified\ndescription: Example\nmodel: fast\neffort: high\n---\nBody');
   let calls = 0;
-  const text = await menu(root, '8\n1\n3\n1\n1\n2\n0\n0\n0\n3\n2\n7\ny\n', undefined, async (provider) => {
+  const text = await menu(root, '7\n1\n3\n1\n1\n2\n0\n0\n0\n3\n2\n9\ny\n', undefined, async (provider) => {
     calls++;
     return calls === 1 ? liveCatalog(provider) : { status: 'error', error: '재조회 인증 실패', models: [] };
   });
@@ -372,7 +372,7 @@ test('failed refresh restricts new selections but keeps earlier verified draft a
   assert.equal(config.backup, 'off');
 });
 
-for (const [field, title, presets] of [[8, '모델', ['flagship', 'balanced', 'fast']], [9, '추론', ['low', 'medium', 'high']]]) {
+for (const [field, title, presets] of [[7, '모델', ['flagship', 'balanced', 'fast']], [8, '추론', ['low', 'medium', 'high']]]) {
   test(`${title} menu selects a provider before showing only its three presets, without querying`, async (t) => {
     const root = fixture(t);
     const queried = [];
@@ -410,25 +410,25 @@ for (const [field, title, presets] of [[8, '모델', ['flagship', 'balanced', 'f
   }
 }
 
-for (const [field, preset] of [[8, 'flagship'], [9, 'low']]) {
+for (const [field, preset] of [[7, 'flagship'], [8, 'low']]) {
   for (const [providerNumber, provider, other] of [[1, 'claude', 'codex'], [2, 'codex', 'claude']]) {
     test(`editing ${field}/${provider} queries only that provider and preserves the other provider`, async (t) => {
       const root = fixture(t);
       const before = loadSyncConfig(root).config;
       const calls = [];
-      const text = await menu(root, `${field}\n${providerNumber}\n1\n${field === 8 ? 1 : 4}\n0\n0\n7\ny\n`, undefined, async (selectedProvider) => {
+      const text = await menu(root, `${field}\n${providerNumber}\n1\n${field === 7 ? 1 : 4}\n0\n0\n9\ny\n`, undefined, async (selectedProvider) => {
         calls.push(selectedProvider);
         return liveCatalog(selectedProvider);
       });
       assert.deepEqual(calls, [provider]);
       const after = loadSyncConfig(root).config;
-      const editedField = field === 8 ? 'modelPresets' : 'effortPresets';
-      assert.equal(after[editedField][preset][provider], field === 8 ? (provider === 'claude' ? 'fable' : 'gpt-test') : 'max');
+      const editedField = field === 7 ? 'modelPresets' : 'effortPresets';
+      assert.equal(after[editedField][preset][provider], field === 7 ? (provider === 'claude' ? 'fable' : 'gpt-test') : 'max');
       for (const mapping of ['modelPresets', 'effortPresets']) {
         for (const name of Object.keys(before[mapping])) assert.equal(after[mapping][name][other], before[mapping][name][other]);
       }
       const providerName = provider === 'claude' ? 'Claude' : 'Codex';
-      assert.equal(text.split(`${field === 8 ? '모델' : '추론'} 프리셋 — ${providerName} 현재 값`).length - 1, 2);
+      assert.equal(text.split(`${field === 7 ? '모델' : '추론'} 프리셋 — ${providerName} 현재 값`).length - 1, 2);
     });
   }
 }
@@ -444,7 +444,7 @@ for (const [name, initial, toggles, expected] of [
 ]) {
   test(`hook installation guidance appears only after saving a new activation: ${name}`, async (t) => {
     const root = fixture(t, { preCommitSync: initial });
-    const steps = [...toggles.flatMap((toggle) => [2, toggle]), 7, 'y'];
+    const steps = [...toggles.flatMap((toggle) => [2, toggle]), 9, 'y'];
     const text = await menu(root, `${steps.join('\n')}\n`);
     assert.equal(text.includes('Git hook 설치 안내:'), expected);
     assert.equal(text.includes('git config core.hooksPath scripts/hooks'), expected);
@@ -456,14 +456,14 @@ for (const [name, initial, toggles, expected] of [
 
 test('hook guidance is omitted when a new activation is cancelled', async (t) => {
   const root = fixture(t);
-  const text = await menu(root, '2\n1\n7\nn\n0\n');
+  const text = await menu(root, '2\n1\n9\nn\n0\n');
   assert.doesNotMatch(text, /hook/i);
   assert.equal(existsSync(join(root, 'config', 'sync.config.json')), false);
 });
 
 test('toggles use On/Off in the main menu, choices and change summary while JSON stays unchanged', async (t) => {
   const root = fixture(t);
-  const text = await menu(root, '2\n1\n3\n2\n5\n2\n6\n2\n7\ny\n');
+  const text = await menu(root, '2\n1\n3\n2\n5\n2\n6\n2\n9\ny\n');
   for (const label of ['커밋 전 자동 동기화: Off', '변경 전 백업: On', 'Claude 동기화: On', 'Codex 동기화: On', 'preCommitSync: Off → On', 'backup: On → Off', 'claude: On → Off', 'codex: On → Off']) assert.ok(text.includes(label), label);
   assert.match(text, /1\. On\n 2\. Off\n 0\. 돌아가기/);
   assert.doesNotMatch(text, /켬|끔|\(true\)|\(false\)|\(on\)|\(off\)/);

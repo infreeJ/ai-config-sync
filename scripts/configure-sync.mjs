@@ -185,9 +185,9 @@ export async function configureSync({ root = ROOT, input = process.stdin, output
       option(4, `보존할 최신 백업 개수: ${currentValue(config.backupRetentionCount)}`);
       option(5, `Claude 동기화: ${currentValue(toggleLabel(config.providers.claude))}`);
       option(6, `Codex 동기화: ${currentValue(toggleLabel(config.providers.codex))}`);
-      option(7, '변경 확인 및 저장');
-      option(8, '모델 프리셋');
-      option(9, '추론 프리셋');
+      option(7, '모델 프리셋');
+      option(8, '추론 프리셋');
+      option(9, '변경 확인 및 저장');
       option(0, '취소');
       const answer = await ask('선택: ');
       if (answer === null || answer === '0') break;
@@ -214,9 +214,9 @@ export async function configureSync({ root = ROOT, input = process.stdin, output
         const provider = answer === '5' ? 'claude' : 'codex';
         selected = await choose(`${provider} 동기화`, [[true, 'On'], [false, 'Off']], { showValues: false });
         if (selected !== undefined && selected !== null) config.providers[provider] = selected;
-      } else if (answer === '8' || answer === '9') {
-        selected = await editPresets(answer === '8' ? 'modelPresets' : 'effortPresets');
-      } else if (answer === '7') {
+      } else if (answer === '7' || answer === '8') {
+        selected = await editPresets(answer === '7' ? 'modelPresets' : 'effortPresets');
+      } else if (answer === '9') {
         let validation;
         try { validation = validateCatalogMappings(root, config, verifiedCatalogs, editedProviders()); }
         catch (error) { print(`저장할 수 없습니다: ${error.message}`, 'error'); continue; }
