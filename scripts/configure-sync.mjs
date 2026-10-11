@@ -15,7 +15,9 @@ const MODES = [
   ['sidecar', '별도 파일로 저장 (사용할 도구에서 별도 연결 필요)'],
   ['managed', '전역 지시문 전체를 원본으로 교체'],
 ];
-const TOGGLES = [['on', '켬'], ['off', '끔']];
+const TOGGLES = [['on', 'On'], ['off', 'Off']];
+const PROVIDERS = [['claude', 'Claude'], ['codex', 'Codex']];
+const toggleLabel = (value) => value === true || value === 'on' ? 'On' : 'Off';
 
 export function saveSyncConfig(snapshot, config) {
   validateSyncConfig(config);
@@ -53,7 +55,7 @@ export function saveSyncConfig(snapshot, config) {
   }
 }
 
-export async function configureSync({ root = ROOT, input = process.stdin, output = process.stdout, queryCatalog = queryProviderCatalog } = {}) {
+export async function configureSync({ root = ROOT, input = process.stdin, output = process.stdout, queryCatalog = queryProviderCatalog, env = process.env } = {}) {
   if (!input.isTTY || !output.isTTY) throw new Error('대화형 터미널에서 npm run config를 실행해 주세요.');
   const snapshot = loadSyncConfig(root);
   const config = structuredClone(snapshot.config);
@@ -74,32 +76,36 @@ export async function configureSync({ root = ROOT, input = process.stdin, output
     rl.close();
   };
   process.on('SIGINT', interrupt);
-  const print = (text) => output.write(`${text}\n`);
+  const colorEnabled = !('NO_COLOR' in env) && env.TERM !== 'dumb';
+  const style = (kind, text) => colorEnabled ? `\x1b[${{ title: '1;36', number: '36', value: '1;32', success: '32', error: '31', warning: '33', info: '2' }[kind]}m${text}\x1b[0m` : String(text);
+  const print = (text, kind) => output.write(`${kind ? style(kind, text) : text}\n`);
+  const currentValue = (value) => style('value', value);
+  const option = (number, label) => print(` ${style('number', `${number}.`)} ${label}`);
   async function ask(text) {
-    output.write(text);
+    output.write(style('number', text));
     if (interrupted) return null;
     const line = await lines.next();
     return line.done ? null : line.value.trim();
   }
-  async function choose(title, values) {
-    print(`\n${title}`);
-    values.forEach(([value, label], index) => print(` ${index + 1}. ${label} (${value})`));
-    print(' 0. 돌아가기');
+  async function choose(title, values, { showValues = true } = {}) {
+    print(`\n${title}`, 'title');
+    values.forEach(([value, label], index) => option(index + 1, `${label}${showValues ? ` (${value})` : ''}`));
+    option(0, '돌아가기');
     while (true) {
       const answer = await ask('선택: ');
       if (answer === null) return null;
       if (answer === '0') return undefined;
       if (/^[1-9]\d*$/.test(answer) && values[Number(answer) - 1]) return values[Number(answer) - 1][0];
-      print('표시된 번호를 입력해 주세요.');
+      print('표시된 번호를 입력해 주세요.', 'error');
     }
   }
   function changes() {
     const rows = [];
     for (const field of ['instructionsMode', 'preCommitSync', 'backup', 'backupRetentionCount']) {
-      if (config[field] !== snapshot.config[field]) rows.push(`${field}: ${snapshot.config[field]} → ${config[field]}`);
+      if (config[field] !== snapshot.config[field]) rows.push(`${field}: ${field === 'preCommitSync' || field === 'backup' ? toggleLabel(snapshot.config[field]) : snapshot.config[field]} → ${field === 'preCommitSync' || field === 'backup' ? toggleLabel(config[field]) : config[field]}`);
     }
     for (const provider of ['claude', 'codex']) {
-      if (config.providers[provider] !== snapshot.config.providers[provider]) rows.push(`${provider}: ${snapshot.config.providers[provider]} → ${config.providers[provider]}`);
+      if (config.providers[provider] !== snapshot.config.providers[provider]) rows.push(`${provider}: ${toggleLabel(snapshot.config.providers[provider])} → ${toggleLabel(config.providers[provider])}`);
     }
     for (const field of ['modelPresets', 'effortPresets']) {
       for (const preset of field === 'modelPresets' ? ['flagship', 'balanced', 'fast'] : ['low', 'medium', 'high']) {
@@ -116,7 +122,7 @@ export async function configureSync({ root = ROOT, input = process.stdin, output
   }
   async function refresh(provider) {
     lookupController = new AbortController();
-    print(`${provider}: 공식 CLI 모델·추론 목록 조회 중… (Ctrl+C: 조회 취소)`);
+    print(`${provider}: 공식 CLI 모델·추론 목록 조회 중… (Ctrl+C: 조회 취소)`, 'info');
     try {
       catalogs[provider] = await queryCatalog(provider, { signal: lookupController.signal });
       if (catalogs[provider].status === 'ready') verifiedCatalogs[provider] = catalogs[provider];
@@ -127,25 +133,38 @@ export async function configureSync({ root = ROOT, input = process.stdin, output
   async function editPresets(field) {
     const modelField = field === 'modelPresets';
     const presets = modelField ? ['flagship', 'balanced', 'fast'] : ['low', 'medium', 'high'];
-    const slots = presets.flatMap((preset) => ['claude', 'codex'].map((provider) => [`${preset}:${provider}`, `${preset} / ${provider}: ${config[field][preset]?.[provider] ?? '미설정'}`]));
-    const slot = await choose(modelField ? '모델 프리셋 — 현재 값' : '추론 프리셋 — 현재 값 (모델과 독립적으로 설정)', slots);
-    if (slot == null) return slot;
-    const [preset, provider] = slot.split(':');
+    const title = modelField ? '모델 프리셋' : '추론 프리셋';
+    while (!interrupted) {
+      const provider = await choose(`${title} — 제공자 선택`, PROVIDERS, { showValues: false });
+      if (provider == null) return provider;
+      while (!interrupted) {
+        const preset = await choose(`${title} — ${PROVIDERS.find(([value]) => value === provider)[1]} 현재 값${modelField ? '' : ' (모델과 독립적으로 설정)'}`,
+          presets.map((name) => [name, `${name}: ${currentValue(config[field][name]?.[provider] ?? '미설정')}`]), { showValues: false });
+        if (preset === null) return null;
+        if (preset === undefined) break;
+        const result = await editPreset(field, preset, provider);
+        if (result === null) return null;
+      }
+    }
+    return null;
+  }
+  async function editPreset(field, preset, provider) {
+    const modelField = field === 'modelPresets';
     if (!catalogs[provider]) await refresh(provider);
     while (!interrupted) {
       const catalog = catalogs[provider];
-      print(`\n${preset} / ${provider} 현재 값: ${config[field][preset]?.[provider] ?? '미설정'}`);
-      print(`조회 상태: ${catalog.status === 'ready' ? `성공 — ${catalog.source || '공식 CLI'}` : `실패 — ${catalog.error}`}`);
-      print('목록은 CLI가 보고한 카탈로그입니다. 계정의 실제 모델 사용 권한은 추론 실행 전에는 보장할 수 없습니다.');
+      print(`\n${preset} / ${provider} 현재 값: ${currentValue(config[field][preset]?.[provider] ?? '미설정')}`);
+      print(`조회 상태: ${catalog.status === 'ready' ? `성공 — ${catalog.source || '공식 CLI'}` : `실패 — ${catalog.error}`}`, catalog.status === 'ready' ? 'success' : 'error');
+      print('목록은 CLI가 보고한 카탈로그입니다. 계정의 실제 모델 사용 권한은 추론 실행 전에는 보장할 수 없습니다.', 'info');
       let values = [];
       if (catalog.status === 'ready') {
         if (modelField) values = catalog.models.map((model) => [model.value, `${model.label}${model.resolvedModel ? ` → ${model.resolvedModel}` : ''} [추론: ${model.efforts?.join(', ') || (model.efforts === null ? '지원 정보 없음' : '지원 없음')}]`]);
         else {
           const levels = [...new Set(catalog.models.flatMap((model) => model.efforts || []))];
           values = levels.map((effort) => [effort, `${effort} — 지원 모델: ${catalog.models.filter((model) => model.efforts?.includes(effort)).map((model) => model.value).join(', ')}`]);
-          if (values.length === 0) print('추론 지원 정보가 없어 이 항목을 변경할 수 없습니다. CLI 업데이트 후 재조회해 주세요.');
+          if (values.length === 0) print('추론 지원 정보가 없어 이 항목을 변경할 수 없습니다. CLI 업데이트 후 재조회해 주세요.', 'warning');
         }
-      } else print('조회 실패로 이 항목은 변경할 수 없습니다. 기존 값은 보존됩니다.');
+      } else print('조회 실패로 이 항목은 변경할 수 없습니다. 기존 값은 보존됩니다.', 'warning');
       const selected = await choose('공식 조회 선택지', [...values, ['refresh', '목록 재조회']]);
       if (selected == null) return selected;
       if (selected === 'refresh') { await refresh(provider); continue; }
@@ -156,10 +175,20 @@ export async function configureSync({ root = ROOT, input = process.stdin, output
     return null;
   }
   try {
-    print('동기화 설정 — 번호를 선택하세요. 저장 전까지 파일은 변경되지 않습니다.');
-    if (snapshot.original === null) print('개인 설정이 없어 기본값을 사용합니다. 저장하면 개인 설정 파일을 만듭니다.');
+    print('동기화 설정 — 번호를 선택하세요. 저장 전까지 파일은 변경되지 않습니다.', 'title');
+    if (snapshot.original === null) print('개인 설정이 없어 기본값을 사용합니다. 저장하면 개인 설정 파일을 만듭니다.', 'info');
     while (!interrupted) {
-      print(`\n1. 지시문 반영 방식: ${config.instructionsMode}\n2. 커밋 전 자동 동기화: ${config.preCommitSync} (Git hook 별도 설치 필요)\n3. 변경 전 백업: ${config.backup}\n4. 보존할 최신 백업 개수: ${config.backupRetentionCount}\n5. Claude 동기화: ${config.providers.claude ? '켬' : '끔'}\n6. Codex 동기화: ${config.providers.codex ? '켬' : '끔'}\n7. 변경 확인 및 저장\n8. 모델 프리셋 (Claude·Codex 6개)\n9. 추론 프리셋 (Claude·Codex 6개)\n0. 취소`);
+      print('\n동기화 설정', 'title');
+      option(1, `지시문 반영 방식: ${currentValue(config.instructionsMode)}`);
+      option(2, `커밋 전 자동 동기화: ${currentValue(toggleLabel(config.preCommitSync))}`);
+      option(3, `변경 전 백업: ${currentValue(toggleLabel(config.backup))}`);
+      option(4, `보존할 최신 백업 개수: ${currentValue(config.backupRetentionCount)}`);
+      option(5, `Claude 동기화: ${currentValue(toggleLabel(config.providers.claude))}`);
+      option(6, `Codex 동기화: ${currentValue(toggleLabel(config.providers.codex))}`);
+      option(7, '변경 확인 및 저장');
+      option(8, '모델 프리셋');
+      option(9, '추론 프리셋');
+      option(0, '취소');
       const answer = await ask('선택: ');
       if (answer === null || answer === '0') break;
       let selected;
@@ -168,7 +197,7 @@ export async function configureSync({ root = ROOT, input = process.stdin, output
         if (selected !== undefined && selected !== null) config.instructionsMode = selected;
       } else if (answer === '2' || answer === '3') {
         const field = answer === '2' ? 'preCommitSync' : 'backup';
-        selected = await choose(field === 'backup' ? '변경 전 백업' : '커밋 전 자동 동기화 (hook 설치는 실행하지 않습니다)', TOGGLES);
+        selected = await choose(field === 'backup' ? '변경 전 백업' : '커밋 전 자동 동기화', TOGGLES, { showValues: false });
         if (selected !== undefined && selected !== null) config[field] = selected;
       } else if (answer === '4') {
         selected = await choose('보존할 최신 백업 개수', [[5, '5개'], [10, '10개 (기본값)'], [20, '20개'], ['custom', '직접 입력']]);
@@ -177,38 +206,42 @@ export async function configureSync({ root = ROOT, input = process.stdin, output
             const value = await ask('1 이상의 정수 (0: 돌아가기): ');
             if (value === null || value === '0') { selected = value === null ? null : undefined; break; }
             if (/^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value))) { selected = Number(value); break; }
-            print('1 이상의 안전한 정수를 입력해 주세요.');
+            print('1 이상의 안전한 정수를 입력해 주세요.', 'error');
           }
         }
         if (selected !== undefined && selected !== null) config.backupRetentionCount = selected;
       } else if (answer === '5' || answer === '6') {
         const provider = answer === '5' ? 'claude' : 'codex';
-        selected = await choose(`${provider} 동기화`, [[true, '켬'], [false, '끔']]);
+        selected = await choose(`${provider} 동기화`, [[true, 'On'], [false, 'Off']], { showValues: false });
         if (selected !== undefined && selected !== null) config.providers[provider] = selected;
       } else if (answer === '8' || answer === '9') {
         selected = await editPresets(answer === '8' ? 'modelPresets' : 'effortPresets');
       } else if (answer === '7') {
         let validation;
         try { validation = validateCatalogMappings(root, config, verifiedCatalogs, editedProviders()); }
-        catch (error) { print(`저장할 수 없습니다: ${error.message}`); continue; }
-        for (const warning of validation.warnings) print(`확인 필요: ${warning}`);
+        catch (error) { print(`저장할 수 없습니다: ${error.message}`, 'error'); continue; }
+        for (const warning of validation.warnings) print(`확인 필요: ${warning}`, 'warning');
         if (validation.errors.length) {
-          print(`저장할 수 없습니다:\n${validation.errors.join('\n')}`);
+          print(`저장할 수 없습니다:\n${validation.errors.join('\n')}`, 'error');
           continue;
         }
-        print(`\n변경 내역:\n${changes().join('\n') || '변경 없음 (현재 설정으로 저장)'}`);
-        print(`저장 위치: ${snapshot.file}\n동기화와 Git hook 설치는 별도로 실행해야 합니다.`);
+        print('\n변경 내역:', 'title');
+        print(changes().join('\n') || '변경 없음 (현재 설정으로 저장)');
+        print(`저장 위치: ${snapshot.file}\n동기화는 별도로 실행해야 합니다.`, 'info');
         const confirmation = await ask('저장하시겠습니까? (y: 저장 / 그 외: 돌아가기): ');
         if (confirmation === null) break;
         if (confirmation.toLowerCase() === 'y' && !interrupted) {
           saveSyncConfig(snapshot, config);
-          print('설정을 저장했습니다. npm run sync:dry로 동기화 계획을 확인할 수 있습니다.');
+          print('설정을 저장했습니다. npm run sync:dry로 동기화 계획을 확인할 수 있습니다.', 'success');
+          if (snapshot.config.preCommitSync === 'off' && config.preCommitSync === 'on') {
+            print('Git hook 설치 안내: 커밋 전 자동 동기화를 사용하려면 다음 명령을 한 번 실행하세요.\ngit config core.hooksPath scripts/hooks', 'info');
+          }
           return;
         }
-      } else { print('표시된 번호를 입력해 주세요.'); }
+      } else { print('표시된 번호를 입력해 주세요.', 'error'); }
       if (selected === null) break;
     }
-    print('취소했습니다. 설정 파일은 변경하지 않았습니다.');
+    print('취소했습니다. 설정 파일은 변경하지 않았습니다.', 'info');
   } finally {
     controller.abort();
     process.off('SIGINT', interrupt);

@@ -18,13 +18,13 @@ function fixture(t, config) {
   return root;
 }
 
-async function menu(root, answers, onOutput, queryCatalog) {
+async function menu(root, answers, onOutput, queryCatalog, env = { NO_COLOR: '' }) {
   const input = new PassThrough();
   input.isTTY = true;
   let text = '';
   const output = new Writable({ write(chunk, encoding, done) { text += chunk; onOutput?.(String(chunk)); done(); } });
   output.isTTY = true;
-  const running = configureSync({ root, input, output, queryCatalog });
+  const running = configureSync({ root, input, output, queryCatalog, env });
   input.end(answers);
   await running;
   return text;
@@ -229,7 +229,11 @@ const liveCatalog = async (provider) => ({ status: 'ready', source: 'test CLI', 
 test('edits all twelve presets from CLI choices and preserves Antigravity', async (t) => {
   const root = fixture(t, { providers: { antigravity: true }, modelPresets: { flagship: { claude: 'opus', codex: 'gpt-existing', antigravity: 'pro', extra: true } } });
   const answers = [];
-  for (const field of [8, 9]) for (let slot = 1; slot <= 6; slot++) answers.push(field, slot, field === 8 ? 1 : 4);
+  for (const field of [8, 9]) for (const provider of [1, 2]) {
+    answers.push(field, provider);
+    for (let preset = 1; preset <= 3; preset++) answers.push(preset, field === 8 ? 1 : 4);
+    answers.push(0, 0);
+  }
   answers.push(7, 'y');
   const text = await menu(root, `${answers.join('\n')}\n`, undefined, liveCatalog);
   const { config } = loadSyncConfig(root);
@@ -253,7 +257,7 @@ test('lookup failure restricts preset changes but allows general edits and retry
   const root = fixture(t);
   const before = loadSyncConfig(root).config;
   let calls = 0;
-  const text = await menu(root, '8\n1\n1\n0\n3\n2\n7\ny\n', undefined, async () => {
+  const text = await menu(root, '8\n1\n1\n1\n0\n0\n0\n3\n2\n7\ny\n', undefined, async () => {
     calls++;
     return { status: 'error', models: [], error: '인증 실패' };
   });
@@ -267,7 +271,7 @@ test('lookup failure restricts preset changes but allows general edits and retry
 
 test('missing effort capability disables effort editing without fallback', async (t) => {
   const root = fixture(t);
-  const text = await menu(root, '9\n1\n0\n7\ny\n', undefined, async () => ({ status: 'ready', models: [{ value: 'fable', label: 'Fable', efforts: null }] }));
+  const text = await menu(root, '9\n1\n1\n0\n0\n0\n7\ny\n', undefined, async () => ({ status: 'ready', models: [{ value: 'fable', label: 'Fable', efforts: null }] }));
   assert.match(text, /추론 지원 정보가 없어/);
   assert.equal(loadSyncConfig(root).config.effortPresets.low.claude, 'low');
 });
@@ -281,7 +285,7 @@ test('save checks actual independent preset combinations and permits correction'
     { value: 'sonnet', label: 'Sonnet', efforts: ['low', 'high'] },
   ] });
   // high -> low is valid; then fast -> sonnet, high -> high are independently valid.
-  const text = await menu(root, '8\n5\n2\n9\n5\n1\n8\n5\n1\n9\n5\n2\n7\n8\n5\n2\n7\ny\n', undefined, catalog);
+  const text = await menu(root, '8\n1\n3\n2\n0\n0\n9\n1\n3\n1\n0\n0\n8\n1\n3\n1\n0\n0\n9\n1\n3\n2\n0\n0\n7\n8\n1\n3\n2\n0\n0\n7\ny\n', undefined, catalog);
   assert.match(text, /fast-high.md.*haiku은 high을 지원하지 않습니다/);
   assert.match(text, /저장할 수 없습니다/);
   assert.equal(loadSyncConfig(root).config.modelPresets.fast.claude, 'sonnet');
@@ -291,7 +295,7 @@ test('inherited model emits a concrete unverifiable capability notice', async (t
   const root = fixture(t);
   mkdirSync(join(root, 'sources', 'agents'), { recursive: true });
   writeFileSync(join(root, 'sources', 'agents', 'inherited.md'), '---\nname: inherited\ndescription: Example\neffort: high\n---\nBody');
-  const text = await menu(root, '9\n5\n4\n7\ny\n', undefined, liveCatalog);
+  const text = await menu(root, '9\n1\n3\n4\n0\n0\n7\ny\n', undefined, liveCatalog);
   assert.match(text, /inherited.md.*모델을 상속하므로/);
   assert.equal(loadSyncConfig(root).config.effortPresets.high.claude, 'max');
 });
@@ -305,7 +309,7 @@ test('ultra from Codex catalog is restricted by the actual model and can be corr
     { value: 'gpt-luna', label: 'Luna', efforts: ['high'] },
     { value: 'gpt-sol', label: 'Sol', efforts: ['high', 'ultra'] },
   ] });
-  const text = await menu(root, '8\n6\n1\n9\n6\n2\n7\n8\n6\n2\n7\ny\n', undefined, catalog);
+  const text = await menu(root, '8\n2\n3\n1\n0\n0\n9\n2\n3\n2\n0\n0\n7\n8\n2\n3\n2\n0\n0\n7\ny\n', undefined, catalog);
   assert.match(text, /ultra-agent.md.*gpt-luna은 ultra을 지원하지 않습니다/);
   assert.equal(loadSyncConfig(root).config.modelPresets.fast.codex, 'gpt-sol');
   assert.equal(loadSyncConfig(root).config.effortPresets.high.codex, 'ultra');
@@ -322,7 +326,7 @@ test('symlinked source agent is checked, while hidden draft is ignored like sync
     { value: 'haiku', label: 'Haiku', efforts: ['low'] },
     { value: 'sonnet', label: 'Sonnet', efforts: ['high'] },
   ] });
-  const text = await menu(root, '8\n5\n1\n7\n8\n5\n2\n7\ny\n', undefined, catalog);
+  const text = await menu(root, '8\n1\n3\n1\n0\n0\n7\n8\n1\n3\n2\n0\n0\n7\ny\n', undefined, catalog);
   // The symlinked haiku + high combination is rejected; sonnet + high is valid.
   assert.doesNotMatch(text, /draft.md/);
   assert.match(text, /linked.md.*haiku은 high을 지원하지 않습니다/);
@@ -331,7 +335,7 @@ test('symlinked source agent is checked, while hidden draft is ignored like sync
 
 test('Ctrl+C during lookup preserves edits and returns to the menu', async (t) => {
   const root = fixture(t);
-  const text = await menu(root, '3\n2\n8\n1\n0\n7\ny\n', undefined, async (provider, { signal }) => {
+  const text = await menu(root, '3\n2\n8\n1\n1\n0\n0\n0\n7\ny\n', undefined, async (provider, { signal }) => {
     process.emit('SIGINT');
     assert.equal(signal.aborted, true);
     return { status: 'error', error: '모델 조회를 취소했습니다.', models: [] };
@@ -344,7 +348,7 @@ test('missing effort mapping blocks save even when model is inherited', async (t
   const root = fixture(t, { effortPresets: { high: { codex: 'high' } } });
   mkdirSync(join(root, 'sources', 'agents'), { recursive: true });
   writeFileSync(join(root, 'sources', 'agents', 'missing-effort.md'), '---\nname: missing-effort\ndescription: Example\neffort: high\n---\nBody');
-  const text = await menu(root, '8\n1\n1\n7\n9\n5\n4\n7\ny\n', undefined, liveCatalog);
+  const text = await menu(root, '8\n1\n1\n1\n0\n0\n7\n9\n1\n3\n4\n0\n0\n7\ny\n', undefined, liveCatalog);
   assert.match(text, /missing-effort.md.*추론 프리셋 매핑이 누락/);
   assert.match(text, /모델을 상속하므로/);
   assert.equal(loadSyncConfig(root).config.effortPresets.high.claude, 'max');
@@ -355,7 +359,7 @@ test('failed refresh restricts new selections but keeps earlier verified draft a
   mkdirSync(join(root, 'sources', 'agents'), { recursive: true });
   writeFileSync(join(root, 'sources', 'agents', 'already-verified.md'), '---\nname: already-verified\ndescription: Example\nmodel: fast\neffort: high\n---\nBody');
   let calls = 0;
-  const text = await menu(root, '8\n5\n1\n8\n1\n2\n0\n3\n2\n7\ny\n', undefined, async (provider) => {
+  const text = await menu(root, '8\n1\n3\n1\n1\n2\n0\n0\n0\n3\n2\n7\ny\n', undefined, async (provider) => {
     calls++;
     return calls === 1 ? liveCatalog(provider) : { status: 'error', error: '재조회 인증 실패', models: [] };
   });
@@ -367,3 +371,127 @@ test('failed refresh restricts new selections but keeps earlier verified draft a
   assert.equal(config.modelPresets.flagship.claude, 'opus');
   assert.equal(config.backup, 'off');
 });
+
+for (const [field, title, presets] of [[8, '모델', ['flagship', 'balanced', 'fast']], [9, '추론', ['low', 'medium', 'high']]]) {
+  test(`${title} menu selects a provider before showing only its three presets, without querying`, async (t) => {
+    const root = fixture(t);
+    const queried = [];
+    const text = await menu(root, `${field}\n1\n0\n2\n0\n0\n0\n`, undefined, async (provider) => {
+      queried.push(provider);
+      return liveCatalog(provider);
+    });
+    assert.deepEqual(queried, []);
+    const providerMenu = text.split(`${title} 프리셋 — 제공자 선택`)[1].split(`${title} 프리셋 — Claude 현재 값`)[0];
+    assert.match(providerMenu, /1\. Claude\n 2\. Codex\n 0\. 돌아가기/);
+    for (const provider of ['Claude', 'Codex']) {
+      const providerPresets = text.split(`${title} 프리셋 — ${provider} 현재 값`)[1].split(`${title} 프리셋 — 제공자 선택`)[0];
+      for (const [index, preset] of presets.entries()) assert.match(providerPresets, new RegExp(`${index + 1}\\. ${preset}:`));
+      assert.doesNotMatch(providerPresets, /[4-6]\. |flagship \/|low \//);
+      assert.doesNotMatch(providerPresets, provider === 'Claude' ? /gpt-5|Codex 현재 값/ : /opus|sonnet|haiku|Claude 현재 값/);
+    }
+    assert.equal(existsSync(join(root, 'config', 'sync.config.json')), false);
+  });
+
+  test(`${title} picker back returns to presets, then provider, then main menu`, async (t) => {
+    const root = fixture(t);
+    const text = await menu(root, `${field}\n1\n1\n0\n0\n0\n0\n`, undefined, liveCatalog);
+    const screens = [...text.matchAll(new RegExp(`${title} 프리셋 — (제공자 선택|Claude 현재 값)|공식 조회 선택지|동기화 설정(?=\\n)`, 'g'))].map((match) => match[1] || match[0]);
+    assert.deepEqual(screens, ['동기화 설정', '제공자 선택', 'Claude 현재 값', '공식 조회 선택지', 'Claude 현재 값', '제공자 선택', '동기화 설정']);
+  });
+
+  for (const answers of [`${field}\n`, `${field}\n1\n`, `${field}\n1\n1\n`, `${field}\n1\n1\n1\n`]) {
+    test(`EOF cancels the whole session at ${title} depth: ${JSON.stringify(answers)}`, async (t) => {
+      const root = fixture(t, { custom: 'preserve bytes' });
+      const snapshot = loadSyncConfig(root);
+      const text = await menu(root, answers, undefined, liveCatalog);
+      assert.match(text, /취소했습니다/);
+      assert.equal(readFileSync(snapshot.file, 'utf8'), snapshot.original);
+    });
+  }
+}
+
+for (const [field, preset] of [[8, 'flagship'], [9, 'low']]) {
+  for (const [providerNumber, provider, other] of [[1, 'claude', 'codex'], [2, 'codex', 'claude']]) {
+    test(`editing ${field}/${provider} queries only that provider and preserves the other provider`, async (t) => {
+      const root = fixture(t);
+      const before = loadSyncConfig(root).config;
+      const calls = [];
+      const text = await menu(root, `${field}\n${providerNumber}\n1\n${field === 8 ? 1 : 4}\n0\n0\n7\ny\n`, undefined, async (selectedProvider) => {
+        calls.push(selectedProvider);
+        return liveCatalog(selectedProvider);
+      });
+      assert.deepEqual(calls, [provider]);
+      const after = loadSyncConfig(root).config;
+      const editedField = field === 8 ? 'modelPresets' : 'effortPresets';
+      assert.equal(after[editedField][preset][provider], field === 8 ? (provider === 'claude' ? 'fable' : 'gpt-test') : 'max');
+      for (const mapping of ['modelPresets', 'effortPresets']) {
+        for (const name of Object.keys(before[mapping])) assert.equal(after[mapping][name][other], before[mapping][name][other]);
+      }
+      const providerName = provider === 'claude' ? 'Claude' : 'Codex';
+      assert.equal(text.split(`${field === 8 ? '모델' : '추론'} 프리셋 — ${providerName} 현재 값`).length - 1, 2);
+    });
+  }
+}
+
+for (const [name, initial, toggles, expected] of [
+  ['Off to On', 'off', [1], true],
+  ['On unchanged', 'on', [], false],
+  ['Off unchanged', 'off', [], false],
+  ['Off stays Off', 'off', [2], false],
+  ['On to Off', 'on', [2], false],
+  ['Off to On to Off', 'off', [1, 2], false],
+  ['On to Off to On', 'on', [2, 1], false],
+]) {
+  test(`hook installation guidance appears only after saving a new activation: ${name}`, async (t) => {
+    const root = fixture(t, { preCommitSync: initial });
+    const steps = [...toggles.flatMap((toggle) => [2, toggle]), 7, 'y'];
+    const text = await menu(root, `${steps.join('\n')}\n`);
+    assert.equal(text.includes('Git hook 설치 안내:'), expected);
+    assert.equal(text.includes('git config core.hooksPath scripts/hooks'), expected);
+    assert.equal((text.match(/hook/gi) || []).length, expected ? 3 : 0);
+    if (expected) assert.ok(text.indexOf('설정을 저장했습니다') < text.indexOf('Git hook 설치 안내:'));
+    assert.equal(loadSyncConfig(root).config.preCommitSync, toggles.length ? (toggles.at(-1) === 1 ? 'on' : 'off') : initial);
+  });
+}
+
+test('hook guidance is omitted when a new activation is cancelled', async (t) => {
+  const root = fixture(t);
+  const text = await menu(root, '2\n1\n7\nn\n0\n');
+  assert.doesNotMatch(text, /hook/i);
+  assert.equal(existsSync(join(root, 'config', 'sync.config.json')), false);
+});
+
+test('toggles use On/Off in the main menu, choices and change summary while JSON stays unchanged', async (t) => {
+  const root = fixture(t);
+  const text = await menu(root, '2\n1\n3\n2\n5\n2\n6\n2\n7\ny\n');
+  for (const label of ['커밋 전 자동 동기화: Off', '변경 전 백업: On', 'Claude 동기화: On', 'Codex 동기화: On', 'preCommitSync: Off → On', 'backup: On → Off', 'claude: On → Off', 'codex: On → Off']) assert.ok(text.includes(label), label);
+  assert.match(text, /1\. On\n 2\. Off\n 0\. 돌아가기/);
+  assert.doesNotMatch(text, /켬|끔|\(true\)|\(false\)|\(on\)|\(off\)/);
+  const { config } = loadSyncConfig(root);
+  assert.equal(config.preCommitSync, 'on');
+  assert.equal(config.backup, 'off');
+  assert.equal(config.providers.claude, false);
+  assert.equal(config.providers.codex, false);
+});
+
+test('TTY menus distinguish titles, numbers, current values and errors with ANSI colors', async (t) => {
+  const root = fixture(t);
+  const text = await menu(root, 'invalid\n0\n', undefined, undefined, { TERM: 'xterm-256color' });
+  assert.match(text, /\x1b\[1;36m동기화 설정/);
+  assert.match(text, /\x1b\[36m1\.\x1b\[0m/);
+  assert.match(text, /\x1b\[1;32mOn\x1b\[0m/);
+  assert.match(text, /\x1b\[31m표시된 번호를 입력해 주세요\.\x1b\[0m/);
+  const plain = await menu(root, 'invalid\n0\n');
+  assert.equal(text.replace(/\x1b\[[\d;]*m/g, ''), plain);
+});
+
+for (const env of [{ NO_COLOR: '' }, { NO_COLOR: '1', TERM: 'xterm' }, { TERM: 'dumb' }]) {
+  test(`ANSI colors are disabled for ${JSON.stringify(env)}`, async (t) => {
+    const root = fixture(t);
+    const text = await menu(root, 'invalid\n0\n', undefined, undefined, env);
+    assert.doesNotMatch(text, /\x1b\[/);
+    assert.match(text, /동기화 설정/);
+    assert.match(text, /Claude 동기화: On/);
+    assert.match(text, /표시된 번호를 입력해 주세요/);
+  });
+}
