@@ -1,9 +1,10 @@
 {
   "name": "ai-config-sync",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
+    "config": "node scripts/configure-sync.mjs",
     "init": "node scripts/init-sources.mjs",
     "test": "node --test",
     "sync": "node scripts/sync-global-ai.mjs",

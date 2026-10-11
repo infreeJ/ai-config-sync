@@ -14,13 +14,14 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { loadSyncConfig } from './lib/sync-config.mjs';
+import { parseFrontmatter } from './lib/frontmatter.mjs';
+import { isModelValue, REASONING_EFFORTS } from './lib/provider-values.mjs';
 
 const ROOT = resolve(join(dirname(fileURLToPath(import.meta.url)), '..'));
 const SOURCE_ROOT = join(ROOT, 'sources');
 const SOURCE_SKILLS = join(SOURCE_ROOT, 'skills');
 const SOURCE_AGENTS = join(SOURCE_ROOT, 'agents');
-const CONFIG_FILE = join(ROOT, 'config', 'sync.config.json');
-const CONFIG_DEFAULT_FILE = join(ROOT, 'config', 'sync.config.default.json');
 const BACKUP_ROOT = join(ROOT, 'backup');
 const DRY_RUN_REQUESTED = process.argv.includes('--dry-run');
 const YES_REQUESTED = process.argv.includes('--yes');
@@ -39,15 +40,6 @@ function color(text, ...styles) {
   if (!USE_COLOR) return text;
   return `${styles.map((style) => ANSI[style]).join('')}${text}${ANSI.reset}`;
 }
-
-function readDefaultConfig() {
-  if (!existsSync(CONFIG_DEFAULT_FILE)) {
-    throw new Error(`Config default file is missing: ${CONFIG_DEFAULT_FILE}. Run: npm run init`);
-  }
-  return JSON.parse(readFileSync(CONFIG_DEFAULT_FILE, 'utf8'));
-}
-
-const DEFAULT_CONFIG = readDefaultConfig();
 
 const home = process.env.USERPROFILE || process.env.HOME;
 if (!home) {
@@ -115,17 +107,12 @@ const HEADER = 'AUTO-GENERATED from ai-config-sync. Edit the source under source
 const MANAGED_INSTRUCTION_BEGIN = '<!-- ai-config-sync:begin instruction -->';
 const MANAGED_INSTRUCTION_END = '<!-- ai-config-sync:end instruction -->';
 const MANAGED_INSTRUCTION_SOURCE = `<!-- AUTO-GENERATED from ${SOURCE_ROOT} -->`;
-const INSTRUCTION_MODES = new Set(['append', 'off', 'sidecar', 'managed']);
-const PRE_COMMIT_SYNC_MODES = new Set(['on', 'off']);
-const BACKUP_MODES = new Set(['on', 'off']);
-const PROVIDER_NAMES = new Set(['claude', 'codex', 'antigravity']);
 const SKILL_FRONTMATTER_FIELDS = new Set(['name', 'description']);
 const AGENT_FRONTMATTER_FIELDS = new Set(['name', 'description', 'model', 'effort']);
 const MODEL_PRESETS = new Set(['flagship', 'balanced', 'fast']);
 const EFFORT_PRESETS = new Set(['low', 'medium', 'high']);
-const CLAUDE_AGENT_MODELS = new Set(['opus', 'sonnet', 'haiku']);
-const CLAUDE_REASONING_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
-const CODEX_REASONING_EFFORTS = new Set(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
+const CLAUDE_REASONING_EFFORTS = new Set(REASONING_EFFORTS.claude);
+const CODEX_REASONING_EFFORTS = new Set(REASONING_EFFORTS.codex);
 const BACKUP_DIRECTORY_NAME = /^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)(?:-(\d+))?$/;
 let DRY_RUN = true;
 let stats;
@@ -158,59 +145,7 @@ function resetRunState(dryRun) {
   plannedCreates = new Set();
 }
 
-function readConfig() {
-  if (!existsSync(CONFIG_FILE)) return DEFAULT_CONFIG;
-  const userConfig = JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
-  return {
-    ...DEFAULT_CONFIG,
-    ...userConfig,
-    modelPresets: {
-      ...DEFAULT_CONFIG.modelPresets,
-      ...(userConfig.modelPresets || {}),
-    },
-    effortPresets: {
-      ...DEFAULT_CONFIG.effortPresets,
-      ...(userConfig.effortPresets || {}),
-    },
-    providers:
-      userConfig.providers === undefined
-        ? DEFAULT_CONFIG.providers
-        : isProviderConfig(userConfig.providers)
-          ? { ...DEFAULT_CONFIG.providers, ...userConfig.providers }
-          : userConfig.providers,
-  };
-}
-
-function isProviderConfig(value) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-const config = readConfig();
-if (!INSTRUCTION_MODES.has(config.instructionsMode)) {
-  throw new Error(
-    `Invalid instructionsMode "${config.instructionsMode}". Expected one of: append, off, sidecar, managed.`,
-  );
-}
-if (!PRE_COMMIT_SYNC_MODES.has(config.preCommitSync)) {
-  throw new Error(`Invalid preCommitSync "${config.preCommitSync}". Expected one of: on, off.`);
-}
-if (!BACKUP_MODES.has(config.backup)) {
-  throw new Error(`Invalid backup "${config.backup}". Expected one of: on, off.`);
-}
-if (!Number.isInteger(config.backupRetentionCount) || config.backupRetentionCount < 1) {
-  throw new Error('Invalid backupRetentionCount. Expected an integer greater than or equal to 1.');
-}
-if (!isProviderConfig(config.providers)) {
-  throw new Error('Invalid providers. Expected an object with supported provider names as boolean values.');
-}
-for (const [provider, enabled] of Object.entries(config.providers)) {
-  if (!PROVIDER_NAMES.has(provider)) {
-    throw new Error(`Unsupported provider "${provider}". Expected one of: ${[...PROVIDER_NAMES].join(', ')}.`);
-  }
-  if (typeof enabled !== 'boolean') {
-    throw new Error(`Invalid provider setting "${provider}". Expected a boolean.`);
-  }
-}
+const config = loadSyncConfig(ROOT).config;
 const instructionMode = config.instructionsMode;
 const preCommitSync = config.preCommitSync;
 const backup = config.backup;
@@ -554,86 +489,6 @@ function syncInstructions() {
   return count;
 }
 
-function parseQuotedScalar(rawValue, quote, sourcePath, lineNumber) {
-  let value = '';
-  let doubleQuotedLiteral = quote;
-  let index = 1;
-  while (index < rawValue.length) {
-    const character = rawValue[index];
-    if (quote === '"' && character === '\\') {
-      if (index + 1 === rawValue.length) {
-        throw new Error(`Invalid frontmatter in ${sourcePath} at line ${lineNumber}: unterminated quoted value.`);
-      }
-      doubleQuotedLiteral += `${character}${rawValue[index + 1]}`;
-      index += 2;
-      continue;
-    }
-    if (character !== quote) {
-      value += character;
-      doubleQuotedLiteral += character;
-      index += 1;
-      continue;
-    }
-
-    if (quote === "'" && rawValue[index + 1] === "'") {
-      value += "'";
-      index += 2;
-      continue;
-    }
-    break;
-  }
-
-  if (index === rawValue.length) {
-    throw new Error(`Invalid frontmatter in ${sourcePath} at line ${lineNumber}: unterminated quoted value.`);
-  }
-
-  const remainder = rawValue.slice(index + 1).trim();
-  if (remainder !== '' && !remainder.startsWith('#')) {
-    throw new Error(`Invalid frontmatter in ${sourcePath} at line ${lineNumber}: invalid quoted value.`);
-  }
-  if (quote === '"') {
-    try {
-      return JSON.parse(`${doubleQuotedLiteral}"`);
-    } catch {
-      throw new Error(`Invalid frontmatter in ${sourcePath} at line ${lineNumber}: invalid quoted value.`);
-    }
-  }
-  return value;
-}
-
-function parseScalar(rawValue, sourcePath, lineNumber) {
-  const value = rawValue.trim();
-  if (value.startsWith('"') || value.startsWith("'")) {
-    return parseQuotedScalar(value, value[0], sourcePath, lineNumber);
-  }
-  if (value.startsWith('#')) return '';
-  return value.replace(/\s+#.*$/, '').trim();
-}
-
-function parseFrontmatter(text, sourcePath = 'source file') {
-  if (!text.startsWith('---\n') && !text.startsWith('---\r\n')) {
-    return { meta: {}, body: text };
-  }
-
-  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/);
-  if (!match) {
-    throw new Error(`Invalid frontmatter in ${sourcePath}: missing closing --- delimiter.`);
-  }
-
-  const meta = {};
-  for (const [index, line] of match[1].split(/\r?\n/).entries()) {
-    if (line.trim() === '' || line.trimStart().startsWith('#')) continue;
-    const kv = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-    if (!kv) {
-      throw new Error(`Invalid frontmatter in ${sourcePath} at line ${index + 2}: ${line}`);
-    }
-    if (Object.hasOwn(meta, kv[1])) {
-      throw new Error(`Invalid frontmatter in ${sourcePath}: duplicate field "${kv[1]}".`);
-    }
-    meta[kv[1]] = parseScalar(kv[2], sourcePath, index + 2);
-  }
-  return { meta, body: match[2] };
-}
 
 function validateFrontmatter(text, sourcePath, kind, allowedFields) {
   const frontmatter = parseFrontmatter(text, sourcePath);
@@ -694,9 +549,9 @@ function validateAgentModelMapping(meta, sourcePath) {
     if (typeof mapped.claude !== 'string' || mapped.claude === '') {
       throw new Error(`Missing Claude model preset mapping for "${meta.model}" in ${sourcePath}.`);
     }
-    if (!CLAUDE_AGENT_MODELS.has(mapped.claude)) {
+    if (!isModelValue('claude', mapped.claude)) {
       throw new Error(
-        `Invalid Claude model preset mapping for "${meta.model}" in ${sourcePath}. Expected one of: ${[...CLAUDE_AGENT_MODELS].join(', ')}.`,
+        `Invalid Claude model preset mapping for "${meta.model}" in ${sourcePath}. Expected a Claude alias or claude-* model ID.`,
       );
     }
   }
@@ -704,8 +559,8 @@ function validateAgentModelMapping(meta, sourcePath) {
     if (typeof mapped.codex !== 'string') {
       throw new Error(`Missing Codex model preset mapping for "${meta.model}" in ${sourcePath}.`);
     }
-    if (mapped.codex.trim() === '') {
-      throw new Error(`Invalid Codex model preset mapping for "${meta.model}" in ${sourcePath}. Expected a non-empty string.`);
+    if (!isModelValue('codex', mapped.codex)) {
+      throw new Error(`Invalid Codex model preset mapping for "${meta.model}" in ${sourcePath}. Expected a non-empty string containing a valid model ID.`);
     }
   }
   if (isProviderEnabled('antigravity')) {
@@ -775,7 +630,7 @@ function claudeAgentMarkdown(markdown) {
   const mapped = modelPreset(meta);
   const mappedEffort = effortPreset(meta);
   let output = markdown;
-  if (mapped) output = output.replace(/^(\s*model\s*:\s*).+$/m, `$1${mapped.claude}`);
+  if (mapped) output = output.replace(/^(\s*model\s*:\s*).+$/m, (_, prefix) => `${prefix}${mapped.claude}`);
   if (mappedEffort) output = output.replace(/^(\s*effort\s*:\s*).+$/m, `$1${mappedEffort.claude}`);
   return output;
 }
