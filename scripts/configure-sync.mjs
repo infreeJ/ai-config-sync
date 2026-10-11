@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -27,14 +26,28 @@ export function saveSyncConfig(snapshot, config) {
   check();
   mkdirSync(dirname(snapshot.file), { recursive: true });
   const temporary = `${snapshot.file}.${randomUUID()}.tmp`;
+  let created = false;
   try {
-    writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    const descriptor = openSync(temporary, 'wx', 0o600);
+    created = true;
+    let writeFailed = false;
+    try {
+      writeFileSync(descriptor, `${JSON.stringify(config, null, 2)}\n`);
+    } catch (error) {
+      writeFailed = true;
+      throw error;
+    } finally {
+      try { closeSync(descriptor); }
+      catch (error) { if (!writeFailed) throw error; }
+    }
     check();
     renameSync(temporary, snapshot.file);
   } catch (error) {
-    if (existsSync(temporary)) {
-      try { execFileSync('trash-put', [temporary], { stdio: 'ignore' }); }
-      catch { error.message += ` 임시 파일을 보존했습니다: ${temporary}`; }
+    if (created) {
+      try { unlinkSync(temporary); }
+      catch (cleanupError) {
+        if (cleanupError.code !== 'ENOENT') error.message += ` 임시 파일을 보존했습니다: ${temporary}`;
+      }
     }
     throw error;
   }
