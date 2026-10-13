@@ -1,14 +1,17 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-export const INSTRUCTION_MODES = ['append', 'off', 'sidecar', 'managed'];
+export const INSTRUCTION_MODES = ['append', 'off', 'managed'];
 const PROVIDER_NAMES = ['claude', 'codex', 'antigravity'];
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 export function validateSyncConfig(config) {
   if (!isObject(config)) throw new Error('Invalid config. Expected a JSON object.');
+  if (config.instructionsMode === 'sidecar') {
+    throw new Error('instructionsMode "sidecar" is no longer supported. Change instructionsMode to "append" in config/sync.config.json, then review with npm run sync:dry.');
+  }
   if (!INSTRUCTION_MODES.includes(config.instructionsMode)) {
-    throw new Error(`Invalid instructionsMode "${config.instructionsMode}". Expected one of: append, off, sidecar, managed.`);
+    throw new Error(`Invalid instructionsMode "${config.instructionsMode}". Expected one of: append, off, managed.`);
   }
   for (const field of ['preCommitSync', 'backup']) {
     if (!['on', 'off'].includes(config[field])) {

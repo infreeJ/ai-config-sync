@@ -22,7 +22,7 @@ const INIT_CLI_PATH = join('scripts', 'init-sources.mjs');
 const BEGIN_MARKER = '<!-- ai-config-sync:begin instruction -->';
 const END_MARKER = '<!-- ai-config-sync:end instruction -->';
 
-function createTestEnvironment({ initializeGit = true, initializeSources = true, enableAllProviders = true } = {}) {
+function createTestEnvironment({ initializeGit = true, initializeSources = true, enableAllProviders = true, legacyInstructions = true } = {}) {
   const temporaryRoot = mkdtempSync(join(tmpdir(), 'ai-config-sync-test-'));
   const repository = join(temporaryRoot, 'repository');
   const home = join(temporaryRoot, 'home');
@@ -54,6 +54,14 @@ function createTestEnvironment({ initializeGit = true, initializeSources = true,
   if (initializeSources) {
     const result = runInit(environment);
     if (result.status !== 0) throw new Error(result.output);
+    // Retain the original suite as regression coverage for legacy sources.
+    if (legacyInstructions) {
+      const common = join(repository, 'sources', 'instructions.md');
+      for (const name of ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md']) {
+        cpSync(common, join(repository, 'sources', name));
+      }
+      rmSync(common);
+    }
   }
 
   return environment;
@@ -104,6 +112,15 @@ function markerCount(content, marker) {
   return content.split(/\r?\n/).filter((line) => line === marker).length;
 }
 
+function assertManagedInstructions(content, source, environment) {
+  const header = `${BEGIN_MARKER}\n<!-- AUTO-GENERATED from ${join(environment.repository, 'sources')} -->\n`;
+  assert.ok(content.startsWith(header), 'managed instructions start with the source path markers');
+  assert.ok(content.endsWith(END_MARKER), 'managed instructions end with the closing marker');
+  assert.equal(markerCount(content, BEGIN_MARKER), 1);
+  assert.equal(markerCount(content, END_MARKER), 1);
+  assert.equal(content.slice(header.length, -END_MARKER.length), source.endsWith('\n') ? source : `${source}\n`);
+}
+
 test('init creates sources from the template without staging them', () => {
   const environment = createTestEnvironment({ initializeSources: false });
   try {
@@ -112,19 +129,14 @@ test('init creates sources from the template without staging them', () => {
     assert.equal(result.status, 0, result.output);
     assert.match(result.output, /Created sources\/ from the bundled template/);
     assert.equal(
-      readFileSync(join(environment.repository, 'sources', 'AGENTS.md'), 'utf8'),
-      readFileSync(join(environment.repository, 'scripts', 'templates', 'sources', 'AGENTS.md'), 'utf8'),
+      readFileSync(join(environment.repository, 'sources', 'instructions.md'), 'utf8'),
+      readFileSync(join(environment.repository, 'scripts', 'templates', 'sources', 'instructions.md'), 'utf8'),
     );
-    assert.equal(
-      readFileSync(join(environment.repository, 'sources', 'CLAUDE.md'), 'utf8'),
-      readFileSync(join(environment.repository, 'scripts', 'templates', 'sources', 'CLAUDE.md'), 'utf8'),
-    );
-    assert.equal(
-      readFileSync(join(environment.repository, 'sources', 'GEMINI.md'), 'utf8'),
-      readFileSync(join(environment.repository, 'scripts', 'templates', 'sources', 'GEMINI.md'), 'utf8'),
-    );
+    for (const name of ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md', 'instructions']) {
+      assert.equal(existsSync(join(environment.repository, 'sources', name)), false);
+    }
     assert.throws(() => {
-      execFileSync('git', ['check-ignore', '--no-index', '--quiet', '--', 'sources/AGENTS.md'], {
+      execFileSync('git', ['check-ignore', '--no-index', '--quiet', '--', 'sources/instructions.md'], {
         cwd: environment.repository,
       });
     });
@@ -169,6 +181,7 @@ test('init preserves an existing sources directory without staging its files', (
     assert.equal(result.status, 0, result.output);
     assert.match(result.output, /sources\/ already exists; preserved existing files/);
     assert.equal(readFileSync(join(environment.repository, 'sources', 'AGENTS.md'), 'utf8'), customInstruction);
+    assert.equal(existsSync(join(environment.repository, 'sources', 'instructions.md')), false);
     const stagedFiles = execFileSync('git', ['diff', '--cached', '--name-only'], {
       cwd: environment.repository,
       encoding: 'utf8',
@@ -185,8 +198,7 @@ test('init creates sources outside a Git work tree', () => {
     const result = runInit(environment);
 
     assert.equal(result.status, 0, result.output);
-    assert.equal(existsSync(join(environment.repository, 'sources', 'AGENTS.md')), true);
-    assert.equal(existsSync(join(environment.repository, 'sources', 'GEMINI.md')), true);
+    assert.equal(existsSync(join(environment.repository, 'sources', 'instructions.md')), true);
   } finally {
     environment.cleanup();
   }
@@ -791,7 +803,7 @@ test('summary excludes hidden target root setup', () => {
   }
 });
 
-test('managed mode replaces complete global instruction files with their sources', () => {
+test('managed mode replaces complete global instruction files with source path markers', () => {
   const environment = createTestEnvironment();
   try {
     const codexInstructions = join(environment.home, '.codex', 'AGENTS.md');
@@ -811,9 +823,9 @@ test('managed mode replaces complete global instruction files with their sources
     const result = runSync(environment);
 
     assert.equal(result.status, 0, result.output);
-    assert.equal(readFileSync(codexInstructions, 'utf8'), codexSource);
-    assert.equal(readFileSync(claudeInstructions, 'utf8'), claudeSource);
-    assert.equal(readFileSync(geminiInstructions, 'utf8'), geminiSource);
+    assertManagedInstructions(readFileSync(codexInstructions, 'utf8'), codexSource, environment);
+    assertManagedInstructions(readFileSync(claudeInstructions, 'utf8'), claudeSource, environment);
+    assertManagedInstructions(readFileSync(geminiInstructions, 'utf8'), geminiSource, environment);
   } finally {
     environment.cleanup();
   }
@@ -853,49 +865,19 @@ test('off mode does not modify or create global instruction files', () => {
   }
 });
 
-test('sidecar mode preserves global instructions and writes all instruction sidecars', () => {
+test('removed sidecar mode fails before writes or backups with migration guidance', () => {
   const environment = createTestEnvironment();
   try {
-    const cases = [
-      {
-        source: 'AGENTS.md',
-        primary: join(environment.home, '.codex', 'AGENTS.md'),
-        sidecar: join(environment.home, '.codex', 'AGENTS-sync.md'),
-      },
-      {
-        source: 'CLAUDE.md',
-        primary: join(environment.home, '.claude', 'CLAUDE.md'),
-        sidecar: join(environment.home, '.claude', 'CLAUDE-sync.md'),
-      },
-      {
-        source: 'GEMINI.md',
-        primary: join(environment.home, '.gemini', 'GEMINI.md'),
-        sidecar: join(environment.home, '.gemini', 'GEMINI-sync.md'),
-      },
-    ];
     writeSyncConfig(environment.repository, { instructionsMode: 'sidecar' });
-
-    for (const instructionCase of cases) {
-      mkdirSync(dirname(instructionCase.primary), { recursive: true });
-      writeFileSync(instructionCase.primary, `## Local ${instructionCase.source} instructions\nKeep unchanged.\n`);
-    }
-
+    const before = snapshotDirectory(environment.home);
+    const configBefore = readFileSync(join(environment.repository, 'config', 'sync.config.json'), 'utf8');
     const result = runSync(environment);
-
-    assert.equal(result.status, 0, result.output);
-    for (const instructionCase of cases) {
-      assert.equal(
-        readFileSync(instructionCase.primary, 'utf8'),
-        `## Local ${instructionCase.source} instructions\nKeep unchanged.\n`,
-      );
-      assert.equal(
-        readFileSync(instructionCase.sidecar, 'utf8'),
-        readFileSync(join(environment.repository, 'sources', instructionCase.source), 'utf8'),
-      );
-    }
-  } finally {
-    environment.cleanup();
-  }
+    assert.notEqual(result.status, 0);
+    assert.match(result.output, /sidecar.*no longer supported.*append.*config\/sync.config.json/);
+    assert.deepEqual(snapshotDirectory(environment.home), before);
+    assert.deepEqual(backupDirectories(environment.repository), []);
+    assert.equal(readFileSync(join(environment.repository, 'config', 'sync.config.json'), 'utf8'), configBefore);
+  } finally { environment.cleanup(); }
 });
 
 test('syncs nested skills to every target while migrating legacy Antigravity skill files idempotently', () => {
@@ -1845,3 +1827,165 @@ for (const [provider, model] of [['claude', 'gpt-model'], ['claude', 'opus\neffo
     } finally { environment.cleanup(); }
   });
 }
+
+const SHARED_TARGETS = [
+  { provider: 'claude', directory: '.claude', name: 'CLAUDE.md' },
+  { provider: 'codex', directory: '.codex', name: 'AGENTS.md' },
+  { provider: 'antigravity', directory: '.gemini', name: 'GEMINI.md' },
+];
+
+for (const mode of ['append', 'managed']) {
+  test(`shared instructions compose provider additions and reflect edits and removals in ${mode}`, () => {
+    const environment = createTestEnvironment({ legacyInstructions: false });
+    try {
+      const sources = join(environment.repository, 'sources');
+      writeSyncConfig(environment.repository, { instructionsMode: mode });
+      writeFileSync(join(sources, 'instructions.md'), '# Common\nShared rule.\n');
+      mkdirSync(join(sources, 'instructions'));
+      for (const target of SHARED_TARGETS) {
+        writeFileSync(join(sources, 'instructions', `${target.provider}.md`), `# ${target.provider}\nExtra rule.`);
+        mkdirSync(join(environment.home, target.directory), { recursive: true });
+        writeFileSync(join(environment.home, target.directory, target.name), 'Local rule.\n');
+        writeFileSync(join(environment.home, target.directory, target.name.replace('.md', '-sync.md')), 'Old sidecar.\n');
+      }
+      const before = snapshotDirectory(environment.home);
+      const dry = runSync(environment, ['--dry-run']);
+      assert.equal(dry.status, 0, dry.output);
+      assert.deepEqual(snapshotDirectory(environment.home), before);
+      assert.deepEqual(backupDirectories(environment.repository), []);
+      const first = runSync(environment);
+      assert.equal(first.status, 0, first.output);
+      for (const target of SHARED_TARGETS) {
+        const content = readFileSync(join(environment.home, target.directory, target.name), 'utf8');
+        const composed = `# Common\nShared rule.\n\n# ${target.provider}\nExtra rule.`;
+        if (mode === 'managed') assertManagedInstructions(content, composed, environment);
+        else {
+          assert.ok(content.startsWith('Local rule.\n'));
+          assert.ok(content.includes(composed));
+          assert.equal(markerCount(content, BEGIN_MARKER), 1);
+          assert.equal(markerCount(content, END_MARKER), 1);
+        }
+        for (const other of SHARED_TARGETS.filter((other) => other !== target)) {
+          assert.ok(!content.includes(`# ${other.provider}\n`));
+        }
+        assert.equal(readFileSync(join(environment.home, target.directory, target.name.replace('.md', '-sync.md')), 'utf8'), 'Old sidecar.\n');
+      }
+      const backups = backupDirectories(environment.repository);
+      assert.equal(backups.length, 1);
+      const second = runSync(environment);
+      assert.equal(second.status, 0, second.output);
+      assert.match(second.output, /No changes to apply/);
+      assert.deepEqual(backupDirectories(environment.repository), backups);
+      writeFileSync(join(sources, 'instructions', 'claude.md'), 'Changed Claude.\n');
+      rmSync(join(sources, 'instructions', 'codex.md'));
+      const updated = runSync(environment);
+      assert.equal(updated.status, 0, updated.output);
+      assert.match(readFileSync(join(environment.home, '.claude', 'CLAUDE.md'), 'utf8'), /Changed Claude/);
+      assert.doesNotMatch(readFileSync(join(environment.home, '.codex', 'AGENTS.md'), 'utf8'), /Extra rule/);
+      assert.match(readFileSync(join(environment.home, '.gemini', 'GEMINI.md'), 'utf8'), /# antigravity/);
+    } finally { environment.cleanup(); }
+  });
+}
+
+for (const [common, extra, expected] of [
+  ['', '', ''],
+  ['', 'Only addition.\n', 'Only addition.\n'],
+  ['Common only.\n', '', 'Common only.\n'],
+  ['Common\n\n\n', '\nAddition\n', 'Common\n\n\n\nAddition\n'],
+  ['Common', 'Addition', 'Common\n\nAddition'],
+  ['Common\r\n', 'Addition\r\n', 'Common\r\n\nAddition\r\n'],
+]) {
+  test(`shared composition preserves bodies: ${JSON.stringify([common, extra])}`, () => {
+    const environment = createTestEnvironment({ legacyInstructions: false });
+    try {
+      const sources = join(environment.repository, 'sources');
+      writeSyncConfig(environment.repository, { instructionsMode: 'managed' });
+      writeFileSync(join(sources, 'instructions.md'), common);
+      mkdirSync(join(sources, 'instructions'));
+      writeFileSync(join(sources, 'instructions', 'claude.md'), extra);
+      const result = runSync(environment);
+      assert.equal(result.status, 0, result.output);
+      assertManagedInstructions(readFileSync(join(environment.home, '.claude', 'CLAUDE.md'), 'utf8'), expected, environment);
+      assertManagedInstructions(readFileSync(join(environment.home, '.codex', 'AGENTS.md'), 'utf8'), common, environment);
+    } finally { environment.cleanup(); }
+  });
+}
+
+test('mixed source structures warn and only use shared sources without modifying legacy files', () => {
+  const environment = createTestEnvironment();
+  try {
+    const legacyBefore = snapshotDirectory(join(environment.repository, 'sources'));
+    writeFileSync(join(environment.repository, 'sources', 'instructions.md'), 'New shared rule.\n');
+    const result = runSync(environment);
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /legacy sources are ignored.*Manually move.*--dry-run/);
+    for (const target of SHARED_TARGETS) {
+      const content = readFileSync(join(environment.home, target.directory, target.name), 'utf8');
+      assert.match(content, /New shared rule/);
+      assert.doesNotMatch(content, /単一|단일 원본 저장소 규칙/);
+    }
+    assert.deepEqual(snapshotDirectory(join(environment.repository, 'sources')).filter((entry) => entry.path !== 'instructions.md'), legacyBefore);
+  } finally { environment.cleanup(); }
+});
+
+for (const invalid of ['missing-common', 'common-directory', 'extra-directory', 'unreadable-extra']) {
+  test(`invalid shared instruction source ${invalid} aborts before global writes or backup`, () => {
+    const environment = createTestEnvironment({ legacyInstructions: false });
+    try {
+      const sources = join(environment.repository, 'sources');
+      mkdirSync(join(sources, 'instructions'));
+      if (invalid === 'missing-common') {
+        rmSync(join(sources, 'instructions.md'));
+        writeFileSync(join(sources, 'instructions', 'claude.md'), 'Extra rule.');
+      } else if (invalid === 'common-directory') {
+        rmSync(join(sources, 'instructions.md'));
+        mkdirSync(join(sources, 'instructions.md'));
+      } else if (invalid === 'extra-directory') {
+        mkdirSync(join(sources, 'instructions', 'claude.md'));
+      } else {
+        symlinkSync(join(sources, 'missing-file.md'), join(sources, 'instructions', 'claude.md'));
+      }
+      const before = snapshotDirectory(environment.home);
+      const result = runSync(environment);
+      assert.notEqual(result.status, 0);
+      assert.match(result.output, /Common instruction source is missing|Instruction source is not a file|ENOENT/);
+      assert.deepEqual(snapshotDirectory(environment.home), before);
+      assert.deepEqual(backupDirectories(environment.repository), []);
+    } finally { environment.cleanup(); }
+  });
+}
+
+test('off and all-disabled providers skip malformed shared instruction sources', () => {
+  for (const overrides of [
+    { instructionsMode: 'off' },
+    { providers: { claude: false, codex: false, antigravity: false } },
+  ]) {
+    const environment = createTestEnvironment({ legacyInstructions: false });
+    try {
+      const common = join(environment.repository, 'sources', 'instructions.md');
+      rmSync(common);
+      mkdirSync(common);
+      writeSyncConfig(environment.repository, overrides);
+      const result = runSync(environment);
+      assert.equal(result.status, 0, result.output);
+      assert.deepEqual(snapshotDirectory(environment.home), []);
+      assert.deepEqual(backupDirectories(environment.repository), []);
+    } finally { environment.cleanup(); }
+  }
+});
+
+test('disabled provider additions are not read or validated', () => {
+  const environment = createTestEnvironment({ legacyInstructions: false });
+  try {
+    writeSyncConfig(environment.repository, { providers: { claude: true, codex: false, antigravity: false } });
+    const extras = join(environment.repository, 'sources', 'instructions');
+    mkdirSync(extras);
+    mkdirSync(join(extras, 'codex.md'));
+    symlinkSync(join(extras, 'missing.md'), join(extras, 'antigravity.md'));
+    const result = runSync(environment);
+    assert.equal(result.status, 0, result.output);
+    assert.equal(existsSync(join(environment.home, '.claude', 'CLAUDE.md')), true);
+    assert.equal(existsSync(join(environment.home, '.codex')), false);
+    assert.equal(existsSync(join(environment.home, '.gemini')), false);
+  } finally { environment.cleanup(); }
+});
