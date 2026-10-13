@@ -57,9 +57,11 @@ npm run config
 
 ```text
 sources/
-  AGENTS.md  # Codex 지시문 원본
-  CLAUDE.md  # Claude 지시문 원본
-  GEMINI.md  # Antigravity CLI 지시문 원본
+  instructions.md  # 모든 제공자의 공통 지시문
+  instructions/    # 필요할 때만 추가하는 제공자별 지시문
+    claude.md
+    codex.md
+    antigravity.md
   agents/    # Claude 기준 Markdown agent 원본
   skills/    # 활성화한 제공자에 공유할 skill 디렉터리
 scripts/  # 스크립트 및 시스템 파일
@@ -88,17 +90,31 @@ config/
 
 ### 원본과 동기화 대상
 
-비활성화한 제공자의 전역 지시문, skills, agents는 생성·수정·삭제하지 않습니다. 해당 제공자에서 과거에 동기화한 파일도 그대로 유지합니다. `sources/GEMINI.md`와 Antigravity CLI 대상 skill·agent 원본은 Antigravity CLI를 활성화할 때 사용할 수 있습니다.
+비활성화한 제공자의 전역 지시문, skills, agents는 생성·수정·삭제하지 않습니다. 해당 제공자에서 과거에 동기화한 파일도 그대로 유지합니다. 비활성화한 제공자의 추가 지시문 내용은 읽거나 검증하지 않습니다.
 
 | 원본 | Claude | Codex | Antigravity CLI |
 | --- | --- | --- | --- |
-| `sources/CLAUDE.md` | 지시문 파일 | — | — |
-| `sources/AGENTS.md` | — | 지시문 파일 | — |
-| `sources/GEMINI.md` | — | — | 지시문 파일 |
+| `sources/instructions.md` | `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md` | `~/.gemini/GEMINI.md` |
+| `sources/instructions/claude.md` | 공통 지시문 뒤에 추가 | — | — |
+| `sources/instructions/codex.md` | — | 공통 지시문 뒤에 추가 | — |
+| `sources/instructions/antigravity.md` | — | — | 공통 지시문 뒤에 추가 |
 | `sources/skills/<name>/SKILL.md` | `~/.claude/skills/<name>/SKILL.md` | `~/.agents/skills/<name>/SKILL.md` | `~/.gemini/antigravity-cli/skills/<name>/SKILL.md` |
 | `sources/agents/<name>.md` | `~/.claude/agents/<name>.md` | `~/.codex/agents/<name>.toml` | `~/.gemini/config/agents/<name>/agent.md` |
 
-`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`는 각각 Claude, Codex, Antigravity CLI에만 동기화합니다. 표의 대상 중 `providers`에서 활성화한 제공자에만 실제로 적용합니다.
+각 제공자는 **공통 지시문 + 해당 제공자의 추가 지시문**을 받습니다. 추가 파일은 선택 사항이며 필요할 때만 생성합니다. 공통 내용 뒤에 빈 줄을 확보하고 추가 내용을 붙이며, 본문은 보존합니다. 추가 지시문은 보충 용도로 작성하며 규칙 충돌을 자동으로 판단하거나 덮어쓰는 문법은 지원하지 않습니다. 표의 대상 중 `providers`에서 활성화한 제공자에만 실제로 적용합니다.
+
+공통 파일 또는 알려진 제공자 추가 파일이 하나라도 있으면 새 구조를 사용합니다. 지시문 동기화 대상이 있으면 `sources/instructions.md`가 반드시 필요합니다. 추가 파일이 없으면 공통 내용만 배포하고, 추가 파일 수정·삭제는 다음 동기화에 반영합니다. 빈 파일도 유효합니다. 빈 추가 파일은 내용을 보태지 않으며, 전체 내용이 비면 `managed`는 전역 파일을 비우고 `append`는 관리 블록 내용만 비웁니다. `off`는 지시문 원본 검증과 배포를 생략합니다.
+
+### 기존 지시문 원본 전환
+
+기존 `sources/AGENTS.md`, `sources/CLAUDE.md`, `sources/GEMINI.md`만 있는 저장소도 계속 지원합니다. 새 구조와 함께 있으면 기존 파일은 합성에서 제외하고 수동 전환 안내를 표시합니다. 원본은 자동 변환하거나 삭제하지 않습니다.
+
+1. 기존 세 파일을 비교해 공통 규칙을 `sources/instructions.md`로 옮깁니다.
+2. 제공자에만 필요한 내용은 `sources/instructions/<provider>.md`로 옮깁니다.
+3. `npm run sync:dry`로 누락과 중복을 확인한 뒤 동기화합니다.
+4. 전환 결과를 확인한 후 더 이상 사용하지 않는 기존 원본을 직접 정리합니다.
+
+`npm run init`은 새 저장소에 공통 파일만 생성하며, 기존 `sources/`는 파일 추가 없이 보존합니다.
 
 동일한 이름의 skill 또는 agent는 활성화한 제공자에서만 갱신하지만, 이름이 다른 전역 항목은 보존합니다. Codex에 포함된 `.system` skill도 관리 대상이 아닙니다.
 
@@ -150,7 +166,6 @@ git merge upstream/main
 | `append` (기본값) | 기존 전역 지시문의 관리 마커 블록에만 원본 지시문을 추가하거나 갱신합니다. |
 | `managed` | 활성화한 제공자의 기존 전역 지시문을 원본으로 교체합니다. |
 | `off` | 활성화한 제공자의 지시문은 건너뛰고 skills와 agents만 동기화합니다. |
-| `sidecar` | 활성화한 제공자의 `AGENTS-sync.md`, `CLAUDE-sync.md`, `GEMINI-sync.md`만 씁니다. (실험적 옵션) |
 
 ### 1. `append`: 공유 설정과 로컬 설정 함께 관리
 
@@ -173,19 +188,11 @@ git merge upstream/main
 
 `off` 모드는 전역 지시문을 건드리지 않고 skills와 agents만 동기화합니다.
 
-### 4. `sidecar`: 공유 설정과 로컬 설정 분리
+### 이전 sidecar 설정 전환
 
-`sidecar` 모드는 기존 전역 지시문을 덮어쓰지 않고, 저장소의 지시문을 `AGENTS-sync.md`, `CLAUDE-sync.md`, `GEMINI-sync.md`로 별도 동기화합니다.
+`sidecar` 모드는 지원을 종료했습니다. 기존 설정으로 동기화나 설정 메뉴를 실행하면 파일 변경 없이 전환 안내와 함께 중단합니다. `config/sync.config.json`의 `instructionsMode`를 `"append"`로 직접 변경하고 `npm run sync:dry`로 검토한 뒤 동기화하세요.
 
-`-sync` 파일은 자동으로 포함되지 않으므로, 기존 전역 지시문에서 해당 파일을 참고하도록 한 번 연결해야 합니다.
-
-```md
-Also review and follow the repository-managed instructions in ~/.codex/AGENTS-sync.md when they are relevant.
-```
-
-Claude에서는 경로를 `~/.claude/CLAUDE-sync.md`로, Antigravity CLI에서는 `~/.gemini/GEMINI-sync.md`로 바꾸면 됩니다.
-
-> `sidecar` 모드는 실험적 옵션이며, 사용은 권장하지 않습니다.
+기존 `AGENTS-sync.md`, `CLAUDE-sync.md`, `GEMINI-sync.md`는 생성·갱신·삭제하지 않습니다. append 반영 결과를 확인한 뒤 전역 지시문에 남아 있는 `-sync.md` 참조와 해당 파일을 직접 정리하세요. 참조가 남으면 오래된 규칙을 계속 읽을 수 있습니다.
 
 <br>
 
