@@ -506,7 +506,9 @@ function syncInstructions() {
     }
     plans.push({
       spec,
-      content: instructionMode === 'append' ? appendManagedInstruction(spec.destination, source) : source,
+      content: instructionMode === 'append'
+        ? appendManagedInstruction(spec.destination, source)
+        : managedInstructionBlock(source),
     });
   }
 

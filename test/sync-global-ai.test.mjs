@@ -112,6 +112,15 @@ function markerCount(content, marker) {
   return content.split(/\r?\n/).filter((line) => line === marker).length;
 }
 
+function assertManagedInstructions(content, source, environment) {
+  const header = `${BEGIN_MARKER}\n<!-- AUTO-GENERATED from ${join(environment.repository, 'sources')} -->\n`;
+  assert.ok(content.startsWith(header), 'managed instructions start with the source path markers');
+  assert.ok(content.endsWith(END_MARKER), 'managed instructions end with the closing marker');
+  assert.equal(markerCount(content, BEGIN_MARKER), 1);
+  assert.equal(markerCount(content, END_MARKER), 1);
+  assert.equal(content.slice(header.length, -END_MARKER.length), source.endsWith('\n') ? source : `${source}\n`);
+}
+
 test('init creates sources from the template without staging them', () => {
   const environment = createTestEnvironment({ initializeSources: false });
   try {
@@ -794,7 +803,7 @@ test('summary excludes hidden target root setup', () => {
   }
 });
 
-test('managed mode replaces complete global instruction files with their sources', () => {
+test('managed mode replaces complete global instruction files with source path markers', () => {
   const environment = createTestEnvironment();
   try {
     const codexInstructions = join(environment.home, '.codex', 'AGENTS.md');
@@ -814,9 +823,9 @@ test('managed mode replaces complete global instruction files with their sources
     const result = runSync(environment);
 
     assert.equal(result.status, 0, result.output);
-    assert.equal(readFileSync(codexInstructions, 'utf8'), codexSource);
-    assert.equal(readFileSync(claudeInstructions, 'utf8'), claudeSource);
-    assert.equal(readFileSync(geminiInstructions, 'utf8'), geminiSource);
+    assertManagedInstructions(readFileSync(codexInstructions, 'utf8'), codexSource, environment);
+    assertManagedInstructions(readFileSync(claudeInstructions, 'utf8'), claudeSource, environment);
+    assertManagedInstructions(readFileSync(geminiInstructions, 'utf8'), geminiSource, environment);
   } finally {
     environment.cleanup();
   }
@@ -1849,7 +1858,7 @@ for (const mode of ['append', 'managed']) {
       for (const target of SHARED_TARGETS) {
         const content = readFileSync(join(environment.home, target.directory, target.name), 'utf8');
         const composed = `# Common\nShared rule.\n\n# ${target.provider}\nExtra rule.`;
-        if (mode === 'managed') assert.equal(content, composed);
+        if (mode === 'managed') assertManagedInstructions(content, composed, environment);
         else {
           assert.ok(content.startsWith('Local rule.\n'));
           assert.ok(content.includes(composed));
@@ -1896,8 +1905,8 @@ for (const [common, extra, expected] of [
       writeFileSync(join(sources, 'instructions', 'claude.md'), extra);
       const result = runSync(environment);
       assert.equal(result.status, 0, result.output);
-      assert.equal(readFileSync(join(environment.home, '.claude', 'CLAUDE.md'), 'utf8'), expected);
-      assert.equal(readFileSync(join(environment.home, '.codex', 'AGENTS.md'), 'utf8'), common);
+      assertManagedInstructions(readFileSync(join(environment.home, '.claude', 'CLAUDE.md'), 'utf8'), expected, environment);
+      assertManagedInstructions(readFileSync(join(environment.home, '.codex', 'AGENTS.md'), 'utf8'), common, environment);
     } finally { environment.cleanup(); }
   });
 }
