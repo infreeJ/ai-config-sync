@@ -32,7 +32,7 @@ async function menu(root, answers, onOutput, queryCatalog, env = { NO_COLOR: '' 
 
 test('menu creates settings without sources and edits all general fields', async (t) => {
   const root = fixture(t);
-  await menu(root, '1\n3\n2\n1\n3\n2\n4\n4\ninvalid\n0.5\n37\n5\n2\n6\n2\n9\ny\n');
+  await menu(root, '1\n2\n2\n1\n3\n2\n4\n4\ninvalid\n0.5\n37\n5\n2\n6\n2\n9\ny\n');
   const { config } = loadSyncConfig(root);
   assert.equal(config.instructionsMode, 'managed');
   assert.equal(config.preCommitSync, 'on');
@@ -505,11 +505,11 @@ test('removed sidecar setting prevents menu writes and explains append migration
   assert.equal(readFileSync(file, 'utf8'), before);
 });
 
-test('instruction menu only offers append, off and managed', async (t) => {
+test('instruction menu offers append, managed and off in order', async (t) => {
   const root = fixture(t);
   const output = await menu(root, '1\n0\n0\n');
   assert.doesNotMatch(output, /sidecar/);
-  assert.match(output, /append/);
-  assert.match(output, /managed/);
-  assert.match(output, /off/);
+  assert.match(output, /1\. 기존 지시문[^\n]*\(append\)/);
+  assert.match(output, /2\. 전역 지시문[^\n]*\(managed\)/);
+  assert.match(output, /3\. 지시문 동기화 안 함[^\n]*\(off\)/);
 });

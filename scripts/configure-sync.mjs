@@ -11,8 +11,8 @@ import { validateCatalogMappings } from './lib/agent-catalog-validation.mjs';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MODES = [
   ['append', '기존 지시문을 보존하고 공유 영역만 추가·갱신'],
-  ['off', '지시문 동기화 안 함 (스킬·에이전트는 별도 동기화)'],
   ['managed', '전역 지시문 전체를 원본으로 교체'],
+  ['off', '지시문 동기화 안 함 (스킬·에이전트는 별도 동기화)'],
 ];
 const TOGGLES = [['on', 'On'], ['off', 'Off']];
 const PROVIDERS = [['claude', 'Claude'], ['codex', 'Codex']];
