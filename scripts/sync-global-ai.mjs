@@ -3,6 +3,7 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  lstatSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -50,14 +51,12 @@ const TARGETS = {
   claude: {
     root: join(home, '.claude'),
     claudeMd: join(home, '.claude', 'CLAUDE.md'),
-    claudeSyncMd: join(home, '.claude', 'CLAUDE-sync.md'),
     skills: join(home, '.claude', 'skills'),
     agents: join(home, '.claude', 'agents'),
   },
   codex: {
     root: join(home, '.codex'),
     agentsMd: join(home, '.codex', 'AGENTS.md'),
-    agentsSyncMd: join(home, '.codex', 'AGENTS-sync.md'),
     agents: join(home, '.codex', 'agents'),
   },
   codexSkills: {
@@ -71,7 +70,6 @@ const TARGETS = {
   antigravityInstructions: {
     root: join(home, '.gemini'),
     geminiMd: join(home, '.gemini', 'GEMINI.md'),
-    geminiSyncMd: join(home, '.gemini', 'GEMINI-sync.md'),
   },
   antigravitySkills: {
     root: join(home, '.gemini', 'antigravity-cli'),
@@ -159,18 +157,11 @@ function isProviderEnabled(provider) {
 function instructionSpecsForMode(mode) {
   if (mode === 'off') return [];
 
-  const destinations =
-    mode === 'managed' || mode === 'append'
-      ? {
-          codex: TARGETS.codex.agentsMd,
-          claude: TARGETS.claude.claudeMd,
-          antigravity: TARGETS.antigravityInstructions.geminiMd,
-        }
-      : {
-          codex: TARGETS.codex.agentsSyncMd,
-          claude: TARGETS.claude.claudeSyncMd,
-          antigravity: TARGETS.antigravityInstructions.geminiSyncMd,
-        };
+  const destinations = {
+    codex: TARGETS.codex.agentsMd,
+    claude: TARGETS.claude.claudeMd,
+    antigravity: TARGETS.antigravityInstructions.geminiMd,
+  };
 
   return [
     {
@@ -456,27 +447,69 @@ function appendManagedInstruction(destination, source) {
   return `${existing.slice(0, beginIndex)}${managedBlock}${existing.slice(managedEnd)}`;
 }
 
+function sourceExists(path) {
+  try {
+    lstatSync(path);
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+function readInstructionSource(path) {
+  if (!statSync(path).isFile()) {
+    throw new Error(`Instruction source is not a file: ${path}`);
+  }
+  return readFileSync(path, 'utf8');
+}
+
+function combineInstructions(common, extra) {
+  if (common.length === 0) return extra;
+  if (extra.length === 0) return common;
+  // Preserve both bodies while ensuring a blank line at their boundary.
+  const trailingNewlines = common.match(/(?:\r?\n)*$/)[0].split('\n').length - 1;
+  const leadingNewlines = extra.match(/^(?:\r?\n)*/)[0].split('\n').length - 1;
+  return `${common}${'\n'.repeat(Math.max(0, 2 - trailingNewlines - leadingNewlines))}${extra}`;
+}
+
 function syncInstructions() {
+  if (instructionSpecs.length === 0) return 0;
+
+  const commonPath = join(SOURCE_ROOT, 'instructions.md');
+  const extraPath = (provider) => join(SOURCE_ROOT, 'instructions', `${provider}.md`);
+  const sharedStructure = sourceExists(commonPath) ||
+    ['claude', 'codex', 'antigravity'].some((provider) => sourceExists(extraPath(provider)));
+  let common;
+  if (sharedStructure) {
+    if (!sourceExists(commonPath)) {
+      throw new Error(`Common instruction source is missing: ${commonPath}. Create sources/instructions.md before syncing.`);
+    }
+    common = readInstructionSource(commonPath);
+    if (['AGENTS.md', 'CLAUDE.md', 'GEMINI.md'].some((name) => sourceExists(join(SOURCE_ROOT, name)))) {
+      recordSkip('instruction legacy sources are ignored because the shared structure is present. Manually move shared rules to sources/instructions.md and provider additions to sources/instructions/<provider>.md; review with --dry-run.');
+    }
+  }
+
   const plans = [];
-  let count = 0;
   for (const spec of instructionSpecs) {
-    if (!existsSync(spec.source)) {
-      recordSkip(`instruction ${spec.name}: source file does not exist`);
-      continue;
+    let source;
+    if (sharedStructure) {
+      const addition = extraPath(spec.provider);
+      source = combineInstructions(common, sourceExists(addition) ? readInstructionSource(addition) : '');
+    } else {
+      if (!sourceExists(spec.source)) {
+        recordSkip(`instruction ${spec.name}: source file does not exist`);
+        continue;
+      }
+      source = readInstructionSource(spec.source);
     }
-
-    const sourceStat = statSync(spec.source);
-    if (!sourceStat.isFile()) {
-      recordSkip(`instruction ${spec.name}: instructions must be top-level files`);
-      continue;
-    }
-
-    const source = readFileSync(spec.source, 'utf8');
     plans.push({
       spec,
-      content: instructionMode === 'append' ? appendManagedInstruction(spec.destination, source) : source,
+      content: instructionMode === 'append'
+        ? appendManagedInstruction(spec.destination, source)
+        : managedInstructionBlock(source),
     });
-    count += 1;
   }
 
   for (const { spec, content } of plans) {
@@ -486,7 +519,7 @@ function syncInstructions() {
       label: spec.name,
     });
   }
-  return count;
+  return plans.length;
 }
 
 
