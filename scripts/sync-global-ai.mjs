@@ -34,7 +34,7 @@ const ANSI = {
   dim: '\x1b[2m',
   green: '\x1b[32m',
   yellow: '\x1b[33m',
-  cyan: '\x1b[36m',
+  blue: '\x1b[34m',
 };
 
 function color(text, ...styles) {
@@ -885,7 +885,7 @@ function printReport(result) {
   const reportTitle = DRY_RUN ? 'Sync Plan' : 'Sync Result';
   const backupStatus = backup === 'on' ? 'On' : 'Off';
   const lines = [
-    color(`[ai-config-sync] ${reportTitle}`, 'bold', DRY_RUN ? 'cyan' : 'green'),
+    color(`[ai-config-sync] ${reportTitle}`, 'bold', DRY_RUN ? 'blue' : 'green'),
     '',
     `Instructions Mode: ${color(instructionMode, 'bold')}`,
     `Backup: ${result.backupPath ? resolve(ROOT, result.backupPath) : backupStatus}`,
@@ -917,7 +917,7 @@ function printReport(result) {
     `  ${color(`Update: ${stats.overwrite}`, 'yellow')}`,
     `  ${color(`Unchanged: ${stats.unchanged}`, 'dim')}`,
     `  ${color(`Skipped: ${stats.skipped}`, stats.skipped > 0 ? 'yellow' : 'dim')}`,
-    `  Scanned: ${result.instructions} instruction file(s), ${result.skills} skill(s), ${result.agents} agent(s)`,
+    `  Scanned: ${result.instructions} instruction(s), ${result.skills} skill(s), ${result.agents} agent(s)`,
   );
 
   console.log(lines.join('\n'));

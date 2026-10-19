@@ -76,7 +76,7 @@ export async function configureSync({ root = ROOT, input = process.stdin, output
   };
   process.on('SIGINT', interrupt);
   const colorEnabled = !('NO_COLOR' in env) && env.TERM !== 'dumb';
-  const style = (kind, text) => colorEnabled ? `\x1b[${{ title: '1;36', number: '36', value: '1;32', success: '32', error: '31', warning: '33', info: '2' }[kind]}m${text}\x1b[0m` : String(text);
+  const style = (kind, text) => colorEnabled ? `\x1b[${{ title: '1;34', number: '34', value: '1;32', success: '32', error: '31', warning: '33', info: '2' }[kind]}m${text}\x1b[0m` : String(text);
   const print = (text, kind) => output.write(`${kind ? style(kind, text) : text}\n`);
   const currentValue = (value) => style('value', value);
   const option = (number, label) => print(` ${style('number', `${number}.`)} ${label}`);

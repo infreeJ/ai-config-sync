@@ -477,8 +477,8 @@ test('toggles use On/Off in the main menu, choices and change summary while JSON
 test('TTY menus distinguish titles, numbers, current values and errors with ANSI colors', async (t) => {
   const root = fixture(t);
   const text = await menu(root, 'invalid\n0\n', undefined, undefined, { TERM: 'xterm-256color' });
-  assert.match(text, /\x1b\[1;36m동기화 설정/);
-  assert.match(text, /\x1b\[36m1\.\x1b\[0m/);
+  assert.match(text, /\x1b\[1;34m동기화 설정/);
+  assert.match(text, /\x1b\[34m1\.\x1b\[0m/);
   assert.match(text, /\x1b\[1;32mOn\x1b\[0m/);
   assert.match(text, /\x1b\[31m표시된 번호를 입력해 주세요\.\x1b\[0m/);
   const plain = await menu(root, 'invalid\n0\n');
