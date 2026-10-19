@@ -34,7 +34,7 @@ const ANSI = {
   dim: '\x1b[2m',
   green: '\x1b[32m',
   yellow: '\x1b[33m',
-  cyan: '\x1b[36m',
+  blue: '\x1b[34m',
 };
 
 function color(text, ...styles) {
@@ -830,15 +830,15 @@ function syncAgents() {
 }
 
 function operationLine(operation) {
-  const action = operation.action === 'overwrite' ? 'update' : operation.action;
-  const actionColor = action === 'create' ? 'green' : 'yellow';
+  const action = operation.action === 'overwrite' ? 'Update' : 'Create';
+  const actionColor = action === 'Create' ? 'green' : 'yellow';
   return `  ${color(action, 'bold', actionColor)} - ${operation.label}`;
 }
 
 function appendOperationSection(lines, title, sectionOperations) {
   if (sectionOperations.length === 0) return;
   const displayedLines = [...new Set(sectionOperations.map(operationLine))];
-  lines.push('', color(title, 'bold', 'cyan'), ...displayedLines);
+  lines.push('', color(title, 'bold'), ...displayedLines);
 }
 
 function hasChangingOperations() {
@@ -882,21 +882,23 @@ function reportNotices() {
 }
 
 function printReport(result) {
-  const reportTitle = DRY_RUN ? 'dry-run plan' : 'sync result';
-  const reportColor = DRY_RUN ? 'yellow' : 'green';
-  const lines = [color(`[sync-global-ai] ${reportTitle}`, 'bold', reportColor), `mode: ${instructionMode}`];
-  if (result.backupPath) {
-    lines.push(`backup: ${result.backupPath}`);
-  }
+  const reportTitle = DRY_RUN ? 'Sync Plan' : 'Sync Result';
+  const backupStatus = backup === 'on' ? 'On' : 'Off';
+  const lines = [
+    color(`[ai-config-sync] ${reportTitle}`, 'bold', DRY_RUN ? 'blue' : 'green'),
+    '',
+    `Instructions Mode: ${color(instructionMode, 'bold')}`,
+    `Backup: ${result.backupPath ? resolve(ROOT, result.backupPath) : backupStatus}`,
+  ];
   for (const deletedBackupPath of result.deletedBackupPaths || []) {
-    lines.push(`deleted backup: ${deletedBackupPath}`);
+    lines.push(`Deleted Backup: ${deletedBackupPath}`);
   }
   appendOperationSection(lines, 'Instructions', operations.instructions);
   appendOperationSection(lines, 'Skills', operations.skills);
   appendOperationSection(lines, 'Agents', operations.agents);
 
   if (!hasChangingOperations()) {
-    lines.push('', color('(no changes)', 'dim'));
+    lines.push('', '적용할 변경 사항이 없습니다.');
   }
 
   if (operations.skipped.length > 0) {
@@ -910,13 +912,12 @@ function printReport(result) {
 
   lines.push(
     '',
-    color('Summary', 'bold', 'cyan'),
-    `  ${color('create:', 'green')} ${stats.create}`,
-    `  ${color('update:', 'yellow')} ${stats.overwrite}`,
-    `  ${color('unchanged:', 'dim')} ${stats.unchanged}`,
-    `  ${color('skipped:', 'yellow')} ${stats.skipped}`,
-    `  scanned: ${result.instructions} instruction file(s), ${result.skills} skill(s), ${result.agents} agent(s)`,
-    '  preserved unrelated global entries: yes',
+    color('Summary', 'bold'),
+    `  ${color(`Create: ${stats.create}`, 'green')}`,
+    `  ${color(`Update: ${stats.overwrite}`, 'yellow')}`,
+    `  ${color(`Unchanged: ${stats.unchanged}`, 'dim')}`,
+    `  ${color(`Skipped: ${stats.skipped}`, stats.skipped > 0 ? 'yellow' : 'dim')}`,
+    `  Scanned: ${result.instructions} instruction(s), ${result.skills} skill(s), ${result.agents} agent(s)`,
   );
 
   console.log(lines.join('\n'));
@@ -938,12 +939,12 @@ function runSync(dryRun, backupResult = {}) {
 async function confirmSync() {
   const rl = createInterface({ input, output });
   try {
-    output.write('\nApply these changes? [y/N] ');
+    output.write(`\n${color('위 변경 사항을 적용할까요? [y/N]', 'bold')} `);
     for await (const line of rl) {
       const answer = line.trim();
       if (answer === 'Y' || answer === 'y') return true;
       if (answer === 'N' || answer === 'n' || answer === '') return false;
-      output.write('Please answer Y or N.\n\nApply these changes? [y/N] ');
+      output.write(`Please answer Y or N.\n\n${color('위 변경 사항을 적용할까요? [y/N]', 'bold')} `);
     }
     return false;
   } finally {
@@ -970,7 +971,6 @@ async function main() {
 
   const plan = runSync(true);
   if (!plan.hasChanges) {
-    console.log('\nNo changes to apply; sync cancelled without writing.');
     return;
   }
 
@@ -981,7 +981,7 @@ async function main() {
         : '\n--yes provided; applying planned changes without prompting.',
     );
   } else if (!(await confirmSync())) {
-    console.log('Sync cancelled; no files were written.');
+    console.log('동기화를 취소했습니다.');
     return;
   }
 

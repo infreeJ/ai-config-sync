@@ -76,7 +76,7 @@ export async function configureSync({ root = ROOT, input = process.stdin, output
   };
   process.on('SIGINT', interrupt);
   const colorEnabled = !('NO_COLOR' in env) && env.TERM !== 'dumb';
-  const style = (kind, text) => colorEnabled ? `\x1b[${{ title: '1;36', number: '36', value: '1;32', success: '32', error: '31', warning: '33', info: '2' }[kind]}m${text}\x1b[0m` : String(text);
+  const style = (kind, text) => colorEnabled ? `\x1b[${{ title: '1;34', number: '34', value: '1;32', success: '32', error: '31', warning: '33', info: '2' }[kind]}m${text}\x1b[0m` : String(text);
   const print = (text, kind) => output.write(`${kind ? style(kind, text) : text}\n`);
   const currentValue = (value) => style('value', value);
   const option = (number, label) => print(` ${style('number', `${number}.`)} ${label}`);
@@ -177,8 +177,8 @@ export async function configureSync({ root = ROOT, input = process.stdin, output
     print('동기화 설정 — 번호를 선택하세요. 저장 전까지 파일은 변경되지 않습니다.', 'title');
     if (snapshot.original === null) print('개인 설정이 없어 기본값을 사용합니다. 저장하면 개인 설정 파일을 만듭니다.', 'info');
     while (!interrupted) {
-      print('\n동기화 설정', 'title');
-      option(1, `지시문 반영 방식: ${currentValue(config.instructionsMode)}`);
+      print('');
+      option(1, `Instruction Sync Mode: ${currentValue(config.instructionsMode)}`);
       option(2, `커밋 전 자동 동기화: ${currentValue(toggleLabel(config.preCommitSync))}`);
       option(3, `변경 전 백업: ${currentValue(toggleLabel(config.backup))}`);
       option(4, `보존할 최신 백업 개수: ${currentValue(config.backupRetentionCount)}`);
@@ -188,11 +188,12 @@ export async function configureSync({ root = ROOT, input = process.stdin, output
       option(8, '추론 프리셋');
       option(9, '변경 확인 및 저장');
       option(0, '취소');
+      print('');
       const answer = await ask('선택: ');
       if (answer === null || answer === '0') break;
       let selected;
       if (answer === '1') {
-        selected = await choose('지시문 반영 방식', MODES);
+        selected = await choose('Instruction Sync Mode', MODES);
         if (selected !== undefined && selected !== null) config.instructionsMode = selected;
       } else if (answer === '2' || answer === '3') {
         const field = answer === '2' ? 'preCommitSync' : 'backup';
