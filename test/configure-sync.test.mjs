@@ -395,8 +395,8 @@ for (const [field, title, presets] of [[7, '모델', ['flagship', 'balanced', 'f
   test(`${title} picker back returns to presets, then provider, then main menu`, async (t) => {
     const root = fixture(t);
     const text = await menu(root, `${field}\n1\n1\n0\n0\n0\n0\n`, undefined, liveCatalog);
-    const screens = [...text.matchAll(new RegExp(`${title} 프리셋 — (제공자 선택|Claude 현재 값)|공식 조회 선택지|지시문 반영 방식:`, 'g'))].map((match) => match[1] || match[0]);
-    assert.deepEqual(screens, ['지시문 반영 방식:', '제공자 선택', 'Claude 현재 값', '공식 조회 선택지', 'Claude 현재 값', '제공자 선택', '지시문 반영 방식:']);
+    const screens = [...text.matchAll(new RegExp(`${title} 프리셋 — (제공자 선택|Claude 현재 값)|공식 조회 선택지|Instruction Sync Mode:`, 'g'))].map((match) => match[1] || match[0]);
+    assert.deepEqual(screens, ['Instruction Sync Mode:', '제공자 선택', 'Claude 현재 값', '공식 조회 선택지', 'Claude 현재 값', '제공자 선택', 'Instruction Sync Mode:']);
   });
 
   for (const answers of [`${field}\n`, `${field}\n1\n`, `${field}\n1\n1\n`, `${field}\n1\n1\n1\n`]) {

@@ -178,7 +178,7 @@ export async function configureSync({ root = ROOT, input = process.stdin, output
     if (snapshot.original === null) print('개인 설정이 없어 기본값을 사용합니다. 저장하면 개인 설정 파일을 만듭니다.', 'info');
     while (!interrupted) {
       print('');
-      option(1, `지시문 반영 방식: ${currentValue(config.instructionsMode)}`);
+      option(1, `Instruction Sync Mode: ${currentValue(config.instructionsMode)}`);
       option(2, `커밋 전 자동 동기화: ${currentValue(toggleLabel(config.preCommitSync))}`);
       option(3, `변경 전 백업: ${currentValue(toggleLabel(config.backup))}`);
       option(4, `보존할 최신 백업 개수: ${currentValue(config.backupRetentionCount)}`);
@@ -193,7 +193,7 @@ export async function configureSync({ root = ROOT, input = process.stdin, output
       if (answer === null || answer === '0') break;
       let selected;
       if (answer === '1') {
-        selected = await choose('지시문 반영 방식', MODES);
+        selected = await choose('Instruction Sync Mode', MODES);
         if (selected !== undefined && selected !== null) config.instructionsMode = selected;
       } else if (answer === '2' || answer === '3') {
         const field = answer === '2' ? 'preCommitSync' : 'backup';
