@@ -648,7 +648,7 @@ test('sync retains the newest configured backups and reports the expired snapsho
     const thirdRun = runSync(environment);
 
     assert.equal(thirdRun.status, 0, thirdRun.output);
-    assert.match(thirdRun.output, new RegExp(`deleted backup: backup/${escapeRegExp(firstBackup)}`));
+    assert.match(thirdRun.output, new RegExp(`Deleted Backup: backup/${escapeRegExp(firstBackup)}`));
     const retainedBackups = backupDirectories(environment.repository);
     assert.equal(retainedBackups.length, 2);
     assert.ok(retainedBackups.includes(secondBackup));
@@ -682,7 +682,7 @@ test('missing backupRetentionCount keeps the default ten newest backups', () => 
     const result = runSync(environment);
 
     assert.equal(result.status, 0, result.output);
-    assert.match(result.output, new RegExp(`deleted backup: backup/${escapeRegExp(oldestBackup)}`));
+    assert.match(result.output, new RegExp(`Deleted Backup: backup/${escapeRegExp(oldestBackup)}`));
     const retainedBackups = backupDirectories(environment.repository);
     const newBackup = retainedBackups.find((backup) => !backupsBeforeSync.includes(backup));
     assert.ok(newBackup);
@@ -707,9 +707,9 @@ test('backup retention sorts same-timestamp suffixes by their numeric sequence',
     const result = runSync(environment);
 
     assert.equal(result.status, 0, result.output);
-    assert.match(result.output, new RegExp(`deleted backup: backup/${escapeRegExp(timestamp)}(?:\\r?\\n|$)`));
-    assert.match(result.output, new RegExp(`deleted backup: backup/${escapeRegExp(`${timestamp}-9`)}(?:\\r?\\n|$)`));
-    assert.doesNotMatch(result.output, new RegExp(`deleted backup: backup/${escapeRegExp(`${timestamp}-10`)}(?:\\r?\\n|$)`));
+    assert.match(result.output, new RegExp(`Deleted Backup: backup/${escapeRegExp(timestamp)}(?:\\r?\\n|$)`));
+    assert.match(result.output, new RegExp(`Deleted Backup: backup/${escapeRegExp(`${timestamp}-9`)}(?:\\r?\\n|$)`));
+    assert.doesNotMatch(result.output, new RegExp(`Deleted Backup: backup/${escapeRegExp(`${timestamp}-10`)}(?:\\r?\\n|$)`));
     const retainedBackups = backupDirectories(environment.repository);
     const newBackup = retainedBackups.find((backup) => !existingBackups.includes(backup));
     assert.ok(newBackup);
@@ -782,7 +782,7 @@ test('backup retention preserves backup folders not created by the sync tool', (
     const result = runSync(environment);
 
     assert.equal(result.status, 0, result.output);
-    assert.match(result.output, new RegExp(`deleted backup: backup/${escapeRegExp(expiredBackup)}`));
+    assert.match(result.output, new RegExp(`Deleted Backup: backup/${escapeRegExp(expiredBackup)}`));
     assert.equal(existsSync(join(backupRoot, expiredBackup)), false);
     assert.equal(readFileSync(join(manualBackup, 'keep.txt'), 'utf8'), 'Do not remove this folder.\n');
     assert.equal(backupDirectories(environment.repository).length, 2);
