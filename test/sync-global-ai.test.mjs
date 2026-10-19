@@ -334,7 +334,7 @@ test('append mode preserves local instructions and creates then updates managed 
     const secondRun = runSync(environment);
     assert.equal(secondRun.status, 0, secondRun.output);
     assert.match(secondRun.output, /Instructions\r?\n/);
-    assert.match(secondRun.output, /update - AGENTS\.md/);
+    assert.match(secondRun.output, /Update - AGENTS\.md/);
     assert.doesNotMatch(secondRun.output, /overwrite/);
     assert.doesNotMatch(secondRun.output, new RegExp(escapeRegExp(environment.home)));
 
@@ -399,7 +399,8 @@ test('--dry-run does not create or modify isolated global paths', () => {
     const result = runSync(environment, ['--dry-run']);
 
     assert.equal(result.status, 0, result.output);
-    assert.match(result.output, /dry-run plan/);
+    assert.match(result.output, /\[ai-config-sync\] Sync Plan\r?\n\r?\nInstructions Mode: append\r?\nBackup: On/);
+    assert.doesNotMatch(result.output, /preserved unrelated global entries|\x1b\[/);
     assert.equal(readFileSync(codexInstructions, 'utf8'), codexContent);
     assert.equal(readFileSync(claudeInstructions, 'utf8'), claudeContent);
     assert.equal(
@@ -450,7 +451,7 @@ test('sync backs up every global instruction, skill, and agent before applying c
     assert.equal(result.status, 0, result.output);
     const backups = backupDirectories(environment.repository);
     assert.equal(backups.length, 1);
-    assert.match(result.output, new RegExp(`backup: backup/${escapeRegExp(backups[0])}`));
+    assert.match(result.output, new RegExp(`Backup: ${escapeRegExp(join(environment.repository, 'backup', backups[0]))}`));
 
     const backup = join(environment.repository, 'backup', backups[0]);
     assert.equal(readFileSync(join(backup, '.codex', 'AGENTS.md'), 'utf8'), codexContent);
@@ -533,8 +534,8 @@ test('sync does not create a backup when there are no changes to apply', () => {
     const secondRun = runSync(environment);
 
     assert.equal(secondRun.status, 0, secondRun.output);
-    assert.match(secondRun.output, /No changes to apply; sync cancelled without writing\./);
-    assert.doesNotMatch(secondRun.output, /^backup:/m);
+    assert.match(secondRun.output, /적용할 변경 사항이 없습니다\./);
+    assert.match(secondRun.output, /^Backup: On$/m);
     assert.deepEqual(backupDirectories(environment.repository), backupsBefore);
   } finally {
     environment.cleanup();
@@ -555,7 +556,7 @@ test('backup off skips backup creation while applying changes', () => {
     assert.equal(result.status, 0, result.output);
     assert.notEqual(readFileSync(codexInstructions, 'utf8'), initialCodexContent);
     assert.match(readFileSync(codexInstructions, 'utf8'), new RegExp(escapeRegExp(BEGIN_MARKER)));
-    assert.doesNotMatch(result.output, /^backup:/m);
+    assert.match(result.output, /^Backup: Off$/m);
     assert.deepEqual(backupDirectories(environment.repository), []);
   } finally {
     environment.cleanup();
@@ -607,7 +608,7 @@ test('missing backup configuration defaults to creating a backup before changes'
 
     assert.equal(result.status, 0, result.output);
     assert.equal(backupDirectories(environment.repository).length, 1);
-    assert.match(result.output, /^backup: backup\//m);
+    assert.match(result.output, new RegExp(`^Backup: ${escapeRegExp(join(environment.repository, 'backup'))}`, 'm'));
   } finally {
     environment.cleanup();
   }
@@ -796,7 +797,7 @@ test('summary excludes hidden target root setup', () => {
     const result = runSync(environment, ['--dry-run']);
 
     assert.equal(result.status, 0, result.output);
-    assert.match(result.output, /create: 3/);
+    assert.match(result.output, /Create: 3/);
     assert.doesNotMatch(result.output, /Target roots/);
   } finally {
     environment.cleanup();
@@ -949,7 +950,7 @@ test('syncs nested skills to every target while migrating legacy Antigravity ski
     const firstRun = runSync(environment);
 
     assert.equal(firstRun.status, 0, firstRun.output);
-    assert.equal((firstRun.output.match(/create - nested-skill/g) ?? []).length, 2);
+    assert.equal((firstRun.output.match(/Create - nested-skill/g) ?? []).length, 2);
     assert.equal(readFileSync(join(claudeSkill, 'SKILL.md'), 'utf8'), skillMarkdown);
     assert.equal(readFileSync(join(claudeSkill, 'references', 'guide.md'), 'utf8'), 'Nested reference\n');
     assert.equal(readFileSync(join(codexSkill, 'SKILL.md'), 'utf8'), skillMarkdown);
@@ -991,9 +992,9 @@ test('syncs nested skills to every target while migrating legacy Antigravity ski
     const secondRun = runSync(environment);
 
     assert.equal(secondRun.status, 0, secondRun.output);
-    assert.match(secondRun.output, /\(no changes\)/);
-    assert.doesNotMatch(secondRun.output, /Instructions/);
-    assert.match(secondRun.output, /No changes to apply; sync cancelled without writing\./);
+    assert.equal((secondRun.output.match(/적용할 변경 사항이 없습니다\./g) ?? []).length, 1);
+    assert.doesNotMatch(secondRun.output, /^Instructions$/m);
+    assert.doesNotMatch(secondRun.output, /위 변경 사항을 적용할까요|Sync Result/);
     assert.deepEqual(snapshotDirectory(environment.home), homeAfterFirstRun);
   } finally {
     environment.cleanup();
@@ -1874,7 +1875,7 @@ for (const mode of ['append', 'managed']) {
       assert.equal(backups.length, 1);
       const second = runSync(environment);
       assert.equal(second.status, 0, second.output);
-      assert.match(second.output, /No changes to apply/);
+      assert.match(second.output, /적용할 변경 사항이 없습니다/);
       assert.deepEqual(backupDirectories(environment.repository), backups);
       writeFileSync(join(sources, 'instructions', 'claude.md'), 'Changed Claude.\n');
       rmSync(join(sources, 'instructions', 'codex.md'));
