@@ -395,8 +395,8 @@ for (const [field, title, presets] of [[7, '모델', ['flagship', 'balanced', 'f
   test(`${title} picker back returns to presets, then provider, then main menu`, async (t) => {
     const root = fixture(t);
     const text = await menu(root, `${field}\n1\n1\n0\n0\n0\n0\n`, undefined, liveCatalog);
-    const screens = [...text.matchAll(new RegExp(`${title} 프리셋 — (제공자 선택|Claude 현재 값)|공식 조회 선택지|동기화 설정(?=\\n)`, 'g'))].map((match) => match[1] || match[0]);
-    assert.deepEqual(screens, ['동기화 설정', '제공자 선택', 'Claude 현재 값', '공식 조회 선택지', 'Claude 현재 값', '제공자 선택', '동기화 설정']);
+    const screens = [...text.matchAll(new RegExp(`${title} 프리셋 — (제공자 선택|Claude 현재 값)|공식 조회 선택지|지시문 반영 방식:`, 'g'))].map((match) => match[1] || match[0]);
+    assert.deepEqual(screens, ['지시문 반영 방식:', '제공자 선택', 'Claude 현재 값', '공식 조회 선택지', 'Claude 현재 값', '제공자 선택', '지시문 반영 방식:']);
   });
 
   for (const answers of [`${field}\n`, `${field}\n1\n`, `${field}\n1\n1\n`, `${field}\n1\n1\n1\n`]) {
@@ -482,6 +482,8 @@ test('TTY menus distinguish titles, numbers, current values and errors with ANSI
   assert.match(text, /\x1b\[1;32mOn\x1b\[0m/);
   assert.match(text, /\x1b\[31m표시된 번호를 입력해 주세요\.\x1b\[0m/);
   const plain = await menu(root, 'invalid\n0\n');
+  assert.doesNotMatch(plain, /^동기화 설정$/m);
+  assert.match(plain, / 0\. 취소\n\n선택: /);
   assert.equal(text.replace(/\x1b\[[\d;]*m/g, ''), plain);
 });
 

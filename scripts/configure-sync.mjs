@@ -177,7 +177,7 @@ export async function configureSync({ root = ROOT, input = process.stdin, output
     print('동기화 설정 — 번호를 선택하세요. 저장 전까지 파일은 변경되지 않습니다.', 'title');
     if (snapshot.original === null) print('개인 설정이 없어 기본값을 사용합니다. 저장하면 개인 설정 파일을 만듭니다.', 'info');
     while (!interrupted) {
-      print('\n동기화 설정', 'title');
+      print('');
       option(1, `지시문 반영 방식: ${currentValue(config.instructionsMode)}`);
       option(2, `커밋 전 자동 동기화: ${currentValue(toggleLabel(config.preCommitSync))}`);
       option(3, `변경 전 백업: ${currentValue(toggleLabel(config.backup))}`);
@@ -188,6 +188,7 @@ export async function configureSync({ root = ROOT, input = process.stdin, output
       option(8, '추론 프리셋');
       option(9, '변경 확인 및 저장');
       option(0, '취소');
+      print('');
       const answer = await ask('선택: ');
       if (answer === null || answer === '0') break;
       let selected;
